@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+.DS_Store
+*.log
+.env*
+.vercel/
+public/assets/hdri/*.exr
+public/assets/hdri/*.hdr
+public/assets/video/*.mp4
+public/assets/music/**
