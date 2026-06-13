@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>NEON LOFT — 雨夜房間模擬器</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Share+Tech+Mono&family=Rajdhani:wght@500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #05060a;
+                    font-family: 'Rajdhani', 'Share Tech Mono', system-ui, sans-serif;
+                    color: #c8f2ff; }
+      #app, canvas { position: fixed; inset: 0; display: block; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center;
+              background: radial-gradient(circle at center, #0a1020 0%, #02030a 80%);
+              z-index: 100; transition: opacity .6s ease; }
+      #boot.gone { opacity: 0; pointer-events: none; }
+      #boot .logo { font-family: 'Orbitron', monospace; font-size: 42px; letter-spacing: .4em;
+                     color: #ff2bdb; text-shadow: 0 0 12px #ff2bdb, 0 0 36px #ff2bdb88; }
+      #boot .sub { margin-top: 14px; font-family: 'Share Tech Mono', monospace;
+                    color: #5af2ff; opacity: .8; font-size: 13px; letter-spacing: .2em; }
+      #boot .prog { margin-top: 22px; width: 280px; height: 4px; background: #0e1428;
+                     border: 1px solid #5af2ff44; }
+      #boot .prog > i { display: block; height: 100%; width: 0%; background: #5af2ff;
+                         box-shadow: 0 0 8px #5af2ff; transition: width .25s; }
+      #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+      #crosshair { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+                    transform: translate(-50%,-50%); border: 1px solid #5af2ffcc;
+                    border-radius: 50%; mix-blend-mode: screen; }
+      #toast { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%);
+                font-family: 'Share Tech Mono', monospace; font-size: 14px;
+                color: #5af2ff; text-shadow: 0 0 8px #5af2ff88; opacity: 0;
+                transition: opacity .25s; }
+      #toast.on { opacity: 1; }
+      #stats { position: absolute; left: 12px; bottom: 12px;
+                font-family: 'Share Tech Mono', monospace; font-size: 12px;
+                color: #5af2ff; opacity: .7; }
+      #lockhint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+                   padding: 14px 22px; border: 1px solid #5af2ff66; background: #00000088;
+                   font-family: 'Share Tech Mono', monospace; font-size: 14px;
+                   color: #c8f2ff; pointer-events: auto; cursor: pointer;
+                   text-align: center; line-height: 1.6; }
+      #lockhint.gone { display: none; }
+      #lockhint .k { color: #ff2bdb; }
+    </style>
+  </head>
+  <body>
+    <div id="boot">
+      <div>
+        <div class="logo">NEON LOFT</div>
+        <div class="sub">// ROOM SIMULATOR — BOOTING NEURAL LINK</div>
+        <div class="prog"><i id="bootbar"></i></div>
+      </div>
+    </div>
+    <div id="app"></div>
+    <div id="hud">
+      <div id="crosshair"></div>
+      <div id="lockhint">點擊進入 / CLICK TO JACK IN<br/>
+        <span class="k">WASD</span> 移動 ·
+        <span class="k">滑鼠</span> 視角 ·
+        <span class="k">Shift</span> 跑 ·
+        <span class="k">E</span> 互動 ·
+        <span class="k">ESC</span> 離開
+      </div>
+      <div id="toast"></div>
+      <div id="stats"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

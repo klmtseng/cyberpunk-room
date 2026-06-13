@@ -1,0 +1,203 @@
+/* CyberOS — fullscreen overlay desktop */
+#cyberos {
+  position: fixed; inset: 0; z-index: 50;
+  background:
+    radial-gradient(120% 90% at 50% 10%, #131a33 0%, #07090f 70%),
+    #07090f;
+  font-family: 'Rajdhani', 'Share Tech Mono', sans-serif;
+  color: #c8f2ff;
+  opacity: 0; pointer-events: none;
+  transition: opacity .45s ease;
+  overflow: hidden;
+}
+#cyberos.on { opacity: 1; pointer-events: auto; }
+#cyberos::after { /* scanlines */
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+#cyberos .wallpaper {
+  position: absolute; inset: 0; pointer-events: none; opacity: .25;
+  background-image:
+    linear-gradient(rgba(90,242,255,.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90,242,255,.16) 1px, transparent 1px);
+  background-size: 44px 44px;
+  transform: perspective(600px) rotateX(28deg) translateY(18%);
+}
+#cyberos .oslogo {
+  position: absolute; left: 50%; top: 34%; transform: translate(-50%,-50%);
+  text-align: center; pointer-events: none; opacity: .5;
+}
+#cyberos .oslogo b {
+  font-family: 'Orbitron'; font-size: 44px; letter-spacing: .45em; color: #ff2bdb;
+  text-shadow: 0 0 18px #ff2bdb88;
+}
+#cyberos .oslogo i { display: block; font-style: normal; font-family: 'Share Tech Mono';
+  font-size: 12px; letter-spacing: .3em; color: #5af2ff; margin-top: 8px; }
+
+/* desktop icons */
+.os-icons { position: absolute; left: 26px; top: 26px; display: grid; gap: 18px; }
+.os-icon { width: 86px; text-align: center; cursor: pointer; user-select: none;
+  padding: 10px 4px; border: 1px solid transparent; border-radius: 4px; }
+.os-icon:hover { border-color: #5af2ff55; background: #5af2ff0d; }
+.os-icon .glyph { font-size: 30px; line-height: 1.4;
+  filter: drop-shadow(0 0 6px currentColor); }
+.os-icon .label { font-family: 'Share Tech Mono'; font-size: 11px; letter-spacing: .08em;
+  color: #9ad8e8; margin-top: 4px; }
+
+/* windows */
+.os-win {
+  pointer-events: auto; /* the win-layer itself is pointer-transparent */
+  position: absolute; min-width: 340px; min-height: 200px;
+  background: #0a0e1add; border: 1px solid #5af2ff66;
+  box-shadow: 0 0 24px #00000099, 0 0 8px #5af2ff22;
+  backdrop-filter: blur(3px); display: flex; flex-direction: column;
+}
+.os-win.focus { border-color: #ff2bdb99; box-shadow: 0 0 28px #000000cc, 0 0 10px #ff2bdb33; }
+.os-titlebar {
+  height: 30px; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; cursor: grab; user-select: none;
+  background: linear-gradient(90deg, #16203a, #101527);
+  border-bottom: 1px solid #5af2ff33;
+  font-family: 'Share Tech Mono'; font-size: 12px; letter-spacing: .14em; color: #5af2ff;
+}
+.os-titlebar .spacer { flex: 1; }
+.os-titlebar button {
+  width: 20px; height: 20px; border: 1px solid #5af2ff55; background: transparent;
+  color: #c8f2ff; font-size: 11px; cursor: pointer; line-height: 1;
+}
+.os-titlebar button:hover { background: #ff2bdb33; border-color: #ff2bdb; }
+.os-body { flex: 1; overflow: auto; position: relative; }
+
+/* taskbar */
+#os-taskbar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 42px;
+  display: flex; align-items: center; gap: 6px; padding: 0 12px;
+  background: #060912ee; border-top: 1px solid #5af2ff44;
+  font-family: 'Share Tech Mono';
+}
+#os-taskbar .brand { color: #ff2bdb; font-family: 'Orbitron'; font-size: 13px;
+  letter-spacing: .2em; margin-right: 10px; }
+#os-taskbar .tab {
+  padding: 4px 12px; font-size: 12px; color: #9ad8e8; cursor: pointer;
+  border: 1px solid #5af2ff33; letter-spacing: .1em;
+}
+#os-taskbar .tab.active { color: #c8f2ff; border-color: #5af2ff; background: #5af2ff14; }
+#os-taskbar .spacer { flex: 1; }
+#os-taskbar .clock { color: #5af2ff; font-size: 13px; letter-spacing: .12em; }
+#os-taskbar .exit {
+  margin-left: 12px; padding: 4px 14px; cursor: pointer;
+  color: #ff5566; border: 1px solid #ff556688; font-size: 12px; letter-spacing: .15em;
+}
+#os-taskbar .exit:hover { background: #ff556622; }
+
+/* terminal */
+.term { background: #04060c; color: #39ff88; font-family: 'Share Tech Mono', monospace;
+  font-size: 13px; padding: 10px; height: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column; }
+.term .scroll { flex: 1; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.term .inline { display: flex; gap: 6px; }
+.term .ps1 { color: #ff2bdb; }
+.term input { flex: 1; background: transparent; border: none; outline: none;
+  color: #39ff88; font: inherit; }
+
+/* neurosound */
+.ns { padding: 12px; display: flex; flex-direction: column; gap: 10px; height: 100%; box-sizing: border-box; }
+.ns .yt-holder { width: 100%; aspect-ratio: 16/9; background: #000; border: 1px solid #5af2ff33; }
+.ns .row { display: flex; gap: 8px; }
+.ns input { flex: 1; background: #060a16; border: 1px solid #5af2ff44; color: #c8f2ff;
+  padding: 7px 10px; font-family: 'Share Tech Mono'; font-size: 12px; outline: none; }
+.ns button, .browser button, .sysmon button {
+  background: transparent; border: 1px solid #5af2ff66; color: #5af2ff;
+  padding: 6px 14px; cursor: pointer; font-family: 'Share Tech Mono'; font-size: 12px;
+  letter-spacing: .1em; }
+.ns button:hover, .browser button:hover, .sysmon button:hover { background: #5af2ff1c; }
+.ns .hint { font-size: 11px; color: #6a7a9a; font-family: 'Share Tech Mono'; }
+.ns .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ns .chip { font-size: 11px; padding: 3px 10px; color: #9ad8e8; cursor: pointer;
+  border: 1px solid #5af2ff33; font-family: 'Share Tech Mono'; }
+.ns .chip:hover { background: #5af2ff14; color: #ffe14d; }
+.ns .results { flex: 1; overflow-y: auto; border: 1px solid #5af2ff22; min-height: 120px; }
+.ns .hit { display: flex; gap: 10px; padding: 6px 8px; cursor: pointer;
+  border-bottom: 1px solid #5af2ff11; align-items: center; }
+.ns .hit:hover, .ns .hit.sel { background: #5af2ff11; }
+.ns .hit img { width: 88px; height: 50px; object-fit: cover; flex: none;
+  border: 1px solid #5af2ff22; }
+.ns .hit .t { font-size: 12px; color: #c8f2ff; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ns .hit .c { font-size: 10px; color: #6a7a9a; font-family: 'Share Tech Mono'; margin-top: 2px; }
+.ns .hit.sel .t { color: #ffe14d; }
+
+/* browser */
+.browser { display: flex; flex-direction: column; height: 100%; }
+.browser .bar { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid #5af2ff22; }
+.browser .bar input { flex: 1; background: #060a16; border: 1px solid #5af2ff44;
+  color: #c8f2ff; padding: 6px 10px; font-family: 'Share Tech Mono'; font-size: 12px; outline: none; }
+.browser .bookmarks { display: flex; gap: 6px; padding: 6px 8px; flex-wrap: wrap;
+  border-bottom: 1px solid #5af2ff22; }
+.browser .bm { font-size: 11px; padding: 3px 10px; color: #9ad8e8; cursor: pointer;
+  border: 1px solid #5af2ff33; font-family: 'Share Tech Mono'; }
+.browser .bm:hover { background: #5af2ff14; }
+.browser iframe { flex: 1; border: none; background: #fff; }
+.browser .ice {
+  flex: 1; display: grid; place-items: center; text-align: center;
+  color: #ff5566; font-family: 'Share Tech Mono'; }
+.browser .ice b { font-size: 22px; letter-spacing: .3em; display: block; margin-bottom: 10px; }
+
+/* sysmon */
+.sysmon { padding: 14px; font-family: 'Share Tech Mono'; font-size: 13px; line-height: 2; }
+.sysmon .k { color: #6a7a9a; display: inline-block; width: 130px; }
+.sysmon .v { color: #5af2ff; }
+.sysmon .presets { margin-top: 10px; display: flex; gap: 8px; }
+.sysmon .presets button.cur { border-color: #ff2bdb; color: #ff2bdb; }
+
+/* 藏書閣 library */
+.lib { display: flex; height: 100%; font-family: 'Share Tech Mono'; }
+.lib .shelf { width: 190px; border-right: 1px solid #5af2ff22; overflow-y: auto; }
+.lib .bk { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #5af2ff11; }
+.lib .bk:hover, .lib .bk.sel { background: #5af2ff11; }
+.lib .bk .t { color: #ffe14d; font-size: 14px; }
+.lib .bk .a { color: #9ad8e8; font-size: 11px; margin-top: 2px; }
+.lib .bk .g { color: #ff2bdb; font-size: 10px; letter-spacing: .2em; margin-top: 2px; }
+.lib .reader { flex: 1; display: flex; flex-direction: column; }
+.lib .rhead { padding: 10px 14px; font-size: 12px; color: #5af2ff;
+  border-bottom: 1px solid #5af2ff22; letter-spacing: .06em; }
+.lib .rtext { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 14px;
+  line-height: 1.9; color: #cfe2ea; font-family: 'Rajdhani', serif; }
+.lib .rfoot { padding: 8px 14px; font-size: 12px; color: #6a7a9a;
+  border-top: 1px solid #5af2ff22; display: flex; align-items: center; gap: 10px; }
+.lib .rfoot button { background: transparent; border: 1px solid #5af2ff66; color: #5af2ff;
+  padding: 4px 12px; cursor: pointer; font-family: 'Share Tech Mono'; font-size: 12px; }
+.lib .rfoot button:hover { background: #5af2ff1c; }
+
+/* 畫廊 gallery */
+.gallery { display: flex; flex-direction: column; height: 100%; font-family: 'Share Tech Mono'; }
+.gallery .gbar { display: flex; gap: 6px; padding: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid #5af2ff22; }
+.gallery .chip { font-size: 11px; padding: 3px 10px; color: #9ad8e8; cursor: pointer;
+  border: 1px solid #5af2ff33; }
+.gallery .chip:hover, .gallery .chip.sel { background: #5af2ff14; color: #ffe14d; }
+.gallery .gview { flex: 1; display: grid; place-items: center; overflow: hidden;
+  background: #04060c; }
+.gallery .gview img { max-width: 100%; max-height: 100%; object-fit: contain;
+  box-shadow: 0 0 30px #000; }
+.gallery .gmsg { color: #6a7a9a; font-size: 13px; }
+.gallery .gmeta { padding: 8px 14px; font-size: 12px; line-height: 1.6; color: #aee6f2;
+  border-top: 1px solid #5af2ff22; min-height: 52px; }
+.gallery .gmeta b { color: #ffe14d; }
+.gallery .gfoot { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  border-top: 1px solid #5af2ff22; }
+.gallery .gfoot button { background: transparent; border: 1px solid #5af2ff66;
+  color: #5af2ff; padding: 5px 14px; cursor: pointer; font-family: 'Share Tech Mono'; }
+.gallery .gfoot button:hover { background: #5af2ff1c; }
+.gallery .src { font-size: 10px; color: #6a7a9a; }
+
+/* neomail */
+.mail { display: flex; height: 100%; font-family: 'Share Tech Mono'; }
+.mail .list { width: 200px; border-right: 1px solid #5af2ff22; overflow-y: auto; }
+.mail .item { padding: 10px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #5af2ff11; }
+.mail .item:hover, .mail .item.sel { background: #5af2ff11; }
+.mail .item .from { color: #ff2bdb; }
+.mail .item .subj { color: #c8f2ff; margin-top: 2px; }
+.mail .read { flex: 1; padding: 14px; font-size: 13px; line-height: 1.8; overflow-y: auto;
+  white-space: pre-wrap; color: #aee6f2; }
