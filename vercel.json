@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/__book", "destination": "/api/book" },
+    { "source": "/__news", "destination": "/api/news" },
+    { "source": "/__music", "destination": "/api/music" }
+  ]
+}
