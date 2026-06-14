@@ -37,11 +37,14 @@ function beacon(): Plugin {
               wantShot = reqTag === 'any' || reqTag === uaTag;
             }
           } catch { /* ignore */ }
-          // remote camera: write {pos:[x,y,z],yaw,pitch} to /tmp/neon-cam.json
+          // remote camera: write {pos:[x,y,z],yaw,pitch} to /tmp/neon-cam.json.
+          // ONE-SHOT: read once, delete the file. A leftover would otherwise
+          // yank the player back to the same pose every beacon tick (~3s).
           let cam: unknown = null;
           try {
             if (existsSync('/tmp/neon-cam.json')) {
               cam = JSON.parse(readFileSync('/tmp/neon-cam.json', 'utf8'));
+              unlinkSync('/tmp/neon-cam.json');
             }
           } catch { /* ignore */ }
           // remote terminal: write {nonce, term:"holo"} to /tmp/neon-cmd.json
@@ -122,9 +125,41 @@ function beacon(): Plugin {
         }
       });
       // dev-only: resolve a YouTube id to a direct progressive stream URL.
-      // format 18 = 360p mp4 with muxed audio — one file, VideoTexture-friendly
+      // format 18 = 360p mp4 with muxed audio — one file, VideoTexture-friendly.
+      // Wrapped in a two-shot retry because googlevideo occasionally returns
+      // 403/SSL errors mid-fetch even when the CLI succeeds; first failure is
+      // usually recoverable on a re-spawn.
       const resolveCache = new Map<string, { ts: number; url: string }>();
-      server.middlewares.use('/__resolve', (req, res) => {
+      const runYtdlp = (vid: string): Promise<{ url?: string; error?: string }> =>
+        new Promise((resolve) => {
+          execFile(
+            `${homedir()}/.local/bin/yt-dlp`,
+            [
+              '-g',
+              // ask for muxed-audio mp4 explicitly; the [acodec!=none] guard
+              // avoids the silent-DASH fallback that plays as a black, mute clip
+              '-f', '18/best[height<=480][ext=mp4][acodec!=none]',
+              '--no-warnings',
+              '--retries', '3',
+              '--socket-timeout', '12',
+              `https://www.youtube.com/watch?v=${vid}`,
+            ],
+            { timeout: 45000 },
+            (err, stdout, stderr) => {
+              const url = stdout.trim().split('\n')[0] ?? '';
+              if (err || !url.startsWith('https://')) {
+                // surface the actual yt-dlp stderr tail instead of the generic
+                // node "Command failed" string — much easier to debug.
+                const detail = ((stderr ?? '').toString().trim().split('\n').slice(-2).join(' | ')
+                  || String(err ?? 'no url')).slice(0, 200);
+                resolve({ error: detail });
+                return;
+              }
+              resolve({ url });
+            },
+          );
+        });
+      server.middlewares.use('/__resolve', async (req, res) => {
         const vid = String(new URL(req.url ?? '', 'http://x').searchParams.get('id') ?? '');
         if (!/^[\w-]{11}$/.test(vid)) { res.statusCode = 400; res.end('{"error":"id"}'); return; }
         const cached = resolveCache.get(vid);
@@ -133,23 +168,21 @@ function beacon(): Plugin {
           res.end(JSON.stringify({ url: cached.url }));
           return;
         }
-        execFile(
-          `${homedir()}/.local/bin/yt-dlp`,
-          ['-g', '-f', '18/best[height<=480][ext=mp4]', '--no-warnings',
-            `https://www.youtube.com/watch?v=${vid}`],
-          { timeout: 30000 },
-          (err, stdout) => {
-            const url = stdout.trim().split('\n')[0] ?? '';
-            if (err || !url.startsWith('https://')) {
-              res.statusCode = 502;
-              res.end(JSON.stringify({ error: String(err ?? 'no url').slice(0, 120) }));
-              return;
-            }
-            resolveCache.set(vid, { ts: Date.now(), url });
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ url }));
-          },
-        );
+        let r = await runYtdlp(vid);
+        if (r.error) {
+          // brief pause then one re-spawn — covers transient googlevideo hiccups
+          await new Promise((rr) => setTimeout(rr, 600));
+          r = await runYtdlp(vid);
+        }
+        if (r.url) {
+          resolveCache.set(vid, { ts: Date.now(), url: r.url });
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ url: r.url }));
+          return;
+        }
+        console.warn(`[resolve] ${vid} failed after retry: ${r.error}`);
+        res.statusCode = 502;
+        res.end(JSON.stringify({ error: r.error ?? 'unknown' }));
       });
 
       // dev-only: same-origin proxy for the googlevideo stream — without it the
