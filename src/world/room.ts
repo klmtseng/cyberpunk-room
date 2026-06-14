@@ -44,8 +44,11 @@ export interface RoomBuild {
     isOpen: () => boolean;
     package: THREE.Mesh;            // delivery box (hidden until delivered)
     setDelivered: (on: boolean) => void;
+    keypad: THREE.Mesh;             // green LED strip → DND toggle (interact target)
   };
   wardrobe: { mesh: THREE.Mesh; cycleOutfit: () => string };
+  starProjector: { hit: THREE.Object3D; cycle: () => string; isOn: () => boolean; currentMode: () => string };
+  fridge: { hit: THREE.Object3D; toggle: () => boolean; isOpen: () => boolean };
 }
 
 // Double-height industrial loft per reference images:
@@ -88,7 +91,12 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   const matWall = new THREE.MeshStandardMaterial({
     color: 0xaab0c4, map: texPanel, roughness: 0.75, metalness: 0.08,
   });
-  const matDark = new THREE.MeshStandardMaterial({ color: 0x05060a, roughness: 0.45, metalness: 0.7 });
+  const texDarkStone = makeDarkStoneTexture();
+  const texDarkStoneRough = makeDarkStoneRoughness();
+  const matDark = new THREE.MeshStandardMaterial({
+    color: 0x131625, map: texDarkStone, roughnessMap: texDarkStoneRough,
+    roughness: 0.55, metalness: 0.55,
+  });
   const matSteel = new THREE.MeshStandardMaterial({
     color: 0x9aa4bd, map: texBrushed, roughness: 0.4, metalness: 0.85,
   });
@@ -227,24 +235,124 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   // ---------- kitchen under mezzanine (per IMG_5690) ----------
   solid(4.6, 0.95, 0.65, matFurn, -2.0, 0.475, -6.55);            // counter run
   box(4.6, 0.06, 0.72, matDark, -2.0, 0.98, -6.55);               // countertop
-  // glowing backsplash tiles
-  const splash = new THREE.Mesh(
+  // backsplash slot — the FlipMosaic mounts here at boot. We leave a black
+  // placeholder so the wall isn't a hole if the mosaic ever fails to load.
+  const splashSlot = new THREE.Mesh(
     new THREE.PlaneGeometry(4.6, 0.8),
-    new THREE.MeshStandardMaterial({
-      color: 0x0a0612, emissive: 0xb44dff, emissiveIntensity: 0.9,
-      emissiveMap: makeTileTexture(), roughness: 0.3,
-    }),
+    new THREE.MeshBasicMaterial({ color: 0x05030a }),
   );
-  splash.position.set(-2.0, 1.45, -6.86);
-  group.add(splash);
+  splashSlot.position.set(-2.0, 1.45, -6.86);
+  splashSlot.name = 'KitchenSplashSlot';
+  group.add(splashSlot);
   box(4.6, 0.7, 0.5, matFurn, -2.0, 2.3, -6.6);                   // upper cabinets
   strip(4.4, 0.03, 0.03, 0xffc6a0, -2.0, 1.92, -6.42, 1.6);       // under-cabinet warm strip
   solid(0.85, 1.9, 0.7, matSteel, 1.1, 0.95, -6.5);               // fridge
   strip(0.03, 1.7, 0.03, 0x5af2ff, 0.72, 0.95, -6.18, 2.0);       // fridge edge glow
-  // island + stools
-  solid(1.6, 0.9, 0.8, matFurn, -2.2, 0.45, -4.6);
-  box(1.6, 0.05, 0.9, matDark, -2.2, 0.925, -4.6);
-  for (const sx of [-2.7, -1.7]) {
+  // smart-fridge holo display: top of door shows a small status panel
+  const fridgeDisplay = (() => {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 128;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#021018'; g.fillRect(0, 0, 256, 128);
+    g.font = '14px monospace'; g.fillStyle = '#5af2ff';
+    g.fillText('SMARTFRIDGE-K3', 12, 22);
+    g.fillStyle = '#39ff88';
+    g.fillText('TEMP  4°C', 12, 50);
+    g.fillText('STOCK 78%', 12, 70);
+    g.fillStyle = '#ff8a3d';
+    g.fillText('EXP 牛奶 03H', 12, 96);
+    return new THREE.CanvasTexture(c);
+  })();
+  fridgeDisplay.colorSpace = THREE.SRGBColorSpace;
+  const fridgeScreen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.28, 0.14),
+    new THREE.MeshBasicMaterial({ map: fridgeDisplay, transparent: true }),
+  );
+  fridgeScreen.position.set(0.72, 1.55, -6.18);
+  fridgeScreen.rotation.y = Math.PI / 2;
+  group.add(fridgeScreen);
+  // fridge interior — visible when door is "open" (toggle by E)
+  const fridgeInterior = new THREE.Group();
+  fridgeInterior.visible = false;
+  // inner light glow
+  const fridgeGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.65, 1.5),
+    new THREE.MeshBasicMaterial({
+      color: 0xddeeff, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }),
+  );
+  fridgeGlow.position.set(0.71, 0.95, -6.18);
+  fridgeGlow.rotation.y = Math.PI / 2;
+  fridgeInterior.add(fridgeGlow);
+  // contents: a row of colourful drink cans + a glowing purple bottle
+  const canColors = [0xff2bdb, 0x5af2ff, 0xffe14d, 0x39ff88, 0xff5566];
+  for (let i = 0; i < canColors.length; i++) {
+    const can = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.038, 0.12, 12),
+      new THREE.MeshStandardMaterial({
+        color: 0x0a0c14, emissive: canColors[i], emissiveIntensity: 0.6,
+        roughness: 0.4, metalness: 0.6,
+      }),
+    );
+    can.position.set(0.72, 1.40, -6.7 + i * 0.10);
+    fridgeInterior.add(can);
+  }
+  // mystery glowing bottle (one shelf down)
+  const bottle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.05, 0.18, 14),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x331b66, emissive: 0xb44dff, emissiveIntensity: 1.2,
+      transparent: true, opacity: 0.85, roughness: 0.12, transmission: 0.4,
+    }),
+  );
+  bottle.position.set(0.72, 1.10, -6.5);
+  fridgeInterior.add(bottle);
+  // a plastic flower in a vase (callback to BR2049 / 鄰居誤送)
+  const vase = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.022, 0.08, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8e8f4, roughness: 0.8 }),
+  );
+  vase.position.set(0.72, 0.65, -6.55);
+  fridgeInterior.add(vase);
+  const flower = new THREE.Mesh(
+    new THREE.SphereGeometry(0.035, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff8ec5 }),
+  );
+  flower.position.set(0.72, 0.74, -6.55);
+  fridgeInterior.add(flower);
+  group.add(fridgeInterior);
+  let fridgeOpen = false;
+  let fridgeCloseTimer = 0;
+  const toggleFridge = (): boolean => {
+    fridgeOpen = !fridgeOpen;
+    fridgeInterior.visible = fridgeOpen;
+    if (fridgeOpen) fridgeCloseTimer = 6;   // auto-close after 6s
+    return fridgeOpen;
+  };
+  animated.push(() => {
+    if (fridgeOpen && fridgeCloseTimer > 0) {
+      fridgeCloseTimer -= 1 / 60;
+      if (fridgeCloseTimer <= 0) {
+        fridgeOpen = false;
+        fridgeInterior.visible = false;
+      }
+    }
+  });
+  // raycast proxy on the door (since the fridge body is matSteel solid)
+  const fridgeHit = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 1.8, 0.6),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  fridgeHit.position.set(0.71, 0.95, -6.5);
+  fridgeHit.name = 'FridgeDoor';
+  group.add(fridgeHit);
+  // island + stools — bar widened to 2.4m (was 1.6m, felt cramped after
+  // surface texture turned darker). Slight depth bump too (0.9 → 1.0).
+  solid(2.4, 0.9, 0.85, matFurn, -2.2, 0.45, -4.6);
+  box(2.4, 0.05, 1.0, matDark, -2.2, 0.925, -4.6);
+  // 3 stools instead of 2 — the bar is wide enough for it now
+  for (const sx of [-3.10, -2.20, -1.30]) {
     box(0.35, 0.07, 0.35, matDark, sx, 0.62, -3.9);
     box(0.06, 0.6, 0.06, matSteel, sx, 0.3, -3.9);
   }
@@ -271,10 +379,10 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   blob(3.8, 1.8, 0.4, 2.0, 0.014);          // sofa
   blob(1.6, 2.8, 2.15, 2.6, 0.014);         // chaise
   blob(1.9, 1.2, 0.2, 3.6, 0.015);          // coffee table
-  blob(3.0, 1.5, 4.7, 3.4);                 // desk
-  blob(1.0, 1.0, 3.7, 3.4);                 // chair
+  blob(1.2, 2.6, 5.65, 3.4);                // desk (long edge along z)
+  blob(0.9, 0.9, 5.00, 3.4);                // chair
   blob(0.9, 3.0, 5.7, 0.2);                 // bookshelf
-  blob(2.2, 1.3, -2.2, -4.6);               // island
+  blob(3.0, 1.4, -2.2, -4.6);               // island
   blob(5.2, 1.1, -2.0, -6.4);               // kitchen counter
   blob(0.7, 0.7, -3.4, 6.3, 0.013, 0.35);   // plants
   blob(0.7, 0.7, 3.6, 6.35, 0.013, 0.35);
@@ -282,21 +390,97 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   blob(0.8, 0.7, -2.2, -6.3, MEZZ_Y + 0.012); // side table
   blob(2.5, 0.9, 3.4, -6.55, MEZZ_Y + 0.012); // dresser
 
-  // ---------- netrunner desk (right wall, per IMG_5689) ----------
-  solid(2.4, 0.74, 0.95, matFurn, 4.7, 0.37, 3.4);
-  box(2.4, 0.05, 1.0, matDark, 4.7, 0.77, 3.4);
-  // triple monitors — center one is the future CyberOS screen
-  // all three monitors stand ON the desk (z 2.93..3.88), stands resting on the top
-  const monitorPlane = makeMonitor(1.1, 0.62, 0x5af2ff, 4.72, 1.44, 3.4, -Math.PI/2);
+  // ---------- netrunner gaming desk (long edge along z, hugging right wall) ----------
+  // Right wall at x=+6.125. Desk depth 0.95 along x, length 2.4 along z.
+  // Desk back ~6.0 (near wall), front ~5.18 (toward chair).
+  solid(0.95, 0.74, 2.4, matFurn, 5.65, 0.37, 3.4);                 // base (collision)
+  box(1.0, 0.05, 2.5, matDark, 5.65, 0.775, 3.4);                   // dark-stone top slab → top surface y=0.80
+  // gaming-style accent strips on the short ends (front and back of long edge)
+  for (const sz of [2.275, 4.525]) {
+    strip(0.05, 0.45, 0.02, 0x5af2ff, 5.20, 0.30, sz, 1.8);          // angled side accent
+  }
+  // RGB front underglow — runs along the long edge (z), at the front face (x=5.175)
+  strip(0.02, 0.02, 2.30, 0xff2bdb, 5.175, 0.715, 3.4, 2.1);
+
+  // monitor riser shelf — runs along z near the back wall, lifts centre monitor
+  box(0.22, 0.05, 0.95, matDark, 5.95, 0.83, 3.4);
+
+  // triple monitors — all face -x (toward chair), arranged along z
+  const monitorPlane = makeMonitor(1.1, 0.62, 0x5af2ff, 5.95, 1.50, 3.4, -Math.PI/2);
   monitorPlane.name = 'Monitor';
-  makeMonitor(0.62, 0.5, 0x39ff88, 4.76, 1.38, 3.02, -Math.PI/2 + 0.3);
-  makeMonitor(0.62, 0.5, 0xff2bdb, 4.76, 1.38, 3.78, -Math.PI/2 - 0.3);
-  strip(0.04, 0.04, 1.9, 0xff8a3d, 5.85, 0.82, 3.4, 1.4);          // desk back edge glow
-  box(0.5, 0.04, 0.18, matDark, 4.35, 0.8, 3.4, -Math.PI/2);       // keyboard
-  // desk chair
-  box(0.55, 0.1, 0.55, matFabric, 3.7, 0.45, 3.4);
-  box(0.55, 0.7, 0.1, matFabric, 3.4, 0.85, 3.4);
-  box(0.08, 0.4, 0.08, matSteel, 3.7, 0.2, 3.4);
+  makeMonitor(0.62, 0.5, 0x39ff88, 5.97, 1.40, 3.02, -Math.PI/2 + 0.3);
+  makeMonitor(0.62, 0.5, 0xff2bdb, 5.97, 1.40, 3.78, -Math.PI/2 - 0.3);
+
+  // peripherals — keyboard centred + mouse to the right, both sit ON desk top (y=0.80)
+  box(0.18, 0.04, 0.5, matDark, 5.55, 0.82, 3.4);                   // mech keyboard (long edge along z)
+  strip(0.005, 0.01, 0.45, 0x39ff88, 5.55, 0.846, 3.4, 1.5);        // keyboard underglow
+  // XL mousepad covering most of the front-of-desk
+  const padMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0b14, roughness: 0.88, metalness: 0.02,
+  });
+  const mousepad = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.5), padMat);
+  mousepad.rotation.x = -Math.PI / 2;
+  mousepad.position.set(5.55, 0.801, 3.4);
+  group.add(mousepad);
+  box(0.08, 0.03, 0.05, matDark, 5.55, 0.815, 3.85);                // mouse (to right of keyboard)
+  strip(0.05, 0.005, 0.005, 0xff2bdb, 5.55, 0.832, 3.85, 2.0);      // mouse RGB
+
+  // desktop speakers flanking the side monitors — sit ON desk top
+  for (const [sx, sy, sz] of [[5.92, 0.90, 2.75], [5.92, 0.90, 4.05]] as const) {
+    box(0.14, 0.20, 0.12, matDark, sx, sy, sz);
+    const cone = new THREE.Mesh(
+      new THREE.CircleGeometry(0.045, 18),
+      new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.6 }),
+    );
+    cone.rotation.y = -Math.PI / 2;
+    cone.position.set(sx - 0.075, sy + 0.02, sz);
+    group.add(cone);
+  }
+  // cable management grommet on desk top (near back wall, behind monitors)
+  const grommet = new THREE.Mesh(
+    new THREE.CircleGeometry(0.045, 18),
+    new THREE.MeshBasicMaterial({ color: 0x000000 }),
+  );
+  grommet.rotation.x = -Math.PI / 2;
+  grommet.position.set(5.85, 0.801, 3.5);
+  group.add(grommet);
+
+  // headphone hook on the front-left side of the desk + headphones hanging
+  box(0.10, 0.02, 0.03, matSteel, 5.10, 0.66, 2.27);                // small hook arm sticking out
+  const headband = new THREE.Mesh(
+    new THREE.TorusGeometry(0.075, 0.012, 8, 24, Math.PI),
+    matSteel,
+  );
+  headband.rotation.set(0, 0, Math.PI);
+  headband.position.set(5.05, 0.56, 2.27);
+  group.add(headband);
+  for (const ex of [-0.075, 0.075]) {
+    const earcup = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.040, 0.045, 12),
+      new THREE.MeshStandardMaterial({ color: 0x0c0c14, roughness: 0.8 }),
+    );
+    earcup.rotation.x = Math.PI / 2;
+    earcup.position.set(5.05 + ex, 0.50, 2.27);
+    group.add(earcup);
+  }
+
+  // PC tower under desk, back-right corner, cyan side window facing the chair
+  box(0.30, 0.50, 0.50, matDark, 5.55, 0.25, 4.40);
+  const pcWindow = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.45, 0.42),
+    new THREE.MeshBasicMaterial({
+      color: 0x05060a, map: makeCodeTexture(0x5af2ff),
+      transparent: true, opacity: 0.85,
+    }),
+  );
+  pcWindow.rotation.y = -Math.PI / 2;
+  pcWindow.position.set(5.395, 0.27, 4.40);
+  group.add(pcWindow);
+
+  // ---------- esports gaming chair — tucked in close to the desk ----------
+  // facing = π/2 → chair seat faces +x (toward desk at x=5.65)
+  // chair centre at x=5.00 → seat front at x=5.25, slightly under the desk overhang
+  buildGamingChair(group, 5.00, 0, 3.4, Math.PI / 2, matDark, matSteel);
 
   // ---------- bookshelf (right wall): antique paper above, data shards below ----------
   // open-front frame (a solid box would swallow the books entirely)
@@ -439,10 +623,302 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   box(0.6, 0.1, 0.4, new THREE.MeshLambertMaterial({ color: 0x4a5570 }), -4.2, MEZZ_Y + 0.68, -5.9);
   strip(2.3, 0.04, 0.04, 0xb44dff, -3.6, MEZZ_Y + 0.05, -4.72, 1.8); // bed underglow
   box(0.5, 0.5, 0.4, matFurn, -2.2, MEZZ_Y + 0.25, -6.3);          // side table
-  strip(0.1, 0.22, 0.1, 0xffc6a0, -2.2, MEZZ_Y + 0.62, -6.3, 1.6); // bedside lamp
+  // (Bedside lamp replaced with a star projector — see starProjector block below.)
   solid(2.0, 1.3, 0.4, matFurn, 3.4, MEZZ_Y + 0.65, -6.6);         // dresser
   // wall art with neon frame
   strip(1.5, 0.9, 0.04, 0x8a2be2, -3.6, MEZZ_Y + 1.9, -6.84, 0.7);
+
+  // ---------- bedside star projector (replaces the plain glow strip lamp) ----------
+  // Sits on the side table at (-2.2, MEZZ_Y + 0.5, -6.3). E cycles modes:
+  //   off → 賽博全息 → 營火暖光 → 古典星象 → off
+  // A faint additive cone of light goes from the lens up to a textured plane
+  // pinned just below the ceiling (y=5.99). Each mode redraws the plane's
+  // canvas in animated.push().
+  const PROJ_X = -2.2, PROJ_Y_BASE = MEZZ_Y + 0.5, PROJ_Z = -6.3;
+  const projBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.085, 0.10, 0.05, 18),
+    new THREE.MeshStandardMaterial({ color: 0x05060a, metalness: 0.6, roughness: 0.45 }),
+  );
+  projBase.position.set(PROJ_X, PROJ_Y_BASE + 0.025, PROJ_Z);
+  group.add(projBase);
+  const projDome = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0x0c0e1e, metalness: 0.55, roughness: 0.35 }),
+  );
+  projDome.position.set(PROJ_X, PROJ_Y_BASE + 0.05, PROJ_Z);
+  projDome.name = 'StarProjector';
+  group.add(projDome);
+  // lens (cycles colour by mode)
+  const projLensMat = new THREE.MeshBasicMaterial({
+    color: 0x5af2ff, transparent: true, opacity: 0,
+  });
+  const projLens = new THREE.Mesh(new THREE.CircleGeometry(0.05, 20), projLensMat);
+  projLens.rotation.x = -Math.PI / 2;
+  projLens.position.set(PROJ_X, PROJ_Y_BASE + 0.122, PROJ_Z);
+  group.add(projLens);
+  // LED ring around base
+  const projRingMat = new THREE.MeshBasicMaterial({ color: 0x5af2ff });
+  const projRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.094, 0.005, 6, 28), projRingMat,
+  );
+  projRing.rotation.x = Math.PI / 2;
+  projRing.position.set(PROJ_X, PROJ_Y_BASE + 0.005, PROJ_Z);
+  group.add(projRing);
+
+  // beam cone — additive blending semi-transparent "light shaft"
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0x88c8ff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const beamH = 5.99 - (PROJ_Y_BASE + 0.122);
+  const beam = new THREE.Mesh(
+    new THREE.ConeGeometry(0.78, beamH, 18, 1, true), beamMat,
+  );
+  beam.rotation.x = Math.PI;       // tip points down at the projector
+  beam.position.set(PROJ_X, PROJ_Y_BASE + 0.122 + beamH / 2, PROJ_Z);
+  beam.visible = false;
+  group.add(beam);
+
+  // ceiling projection plane — canvas-driven
+  const projCanvas = document.createElement('canvas');
+  projCanvas.width = 1024; projCanvas.height = 1024;
+  const projTex = new THREE.CanvasTexture(projCanvas);
+  projTex.colorSpace = THREE.SRGBColorSpace;
+  const projPlaneMat = new THREE.MeshBasicMaterial({
+    map: projTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const projPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), projPlaneMat);
+  projPlane.rotation.x = Math.PI / 2;
+  projPlane.position.set(PROJ_X, 5.985, PROJ_Z);
+  projPlane.visible = false;
+  group.add(projPlane);
+
+  type ProjMode = 'off' | 'cyber' | 'cozy' | 'planet';
+  let projMode: ProjMode = 'off';
+  const PROJ_LABELS: Record<ProjMode, string> = {
+    off: '熄滅', cyber: '賽博全息', cozy: '營火暖光', planet: '古典星象',
+  };
+  const PROJ_TINTS: Record<ProjMode, { lens: number; beam: number }> = {
+    off:    { lens: 0x000000, beam: 0x000000 },
+    cyber:  { lens: 0x5af2ff, beam: 0x88c8ff },
+    cozy:   { lens: 0xffb070, beam: 0xff9050 },
+    planet: { lens: 0xc0e0ff, beam: 0xa0c0ff },
+  };
+
+  const cycleProjector = (): string => {
+    const order: ProjMode[] = ['off', 'cyber', 'cozy', 'planet'];
+    projMode = order[(order.indexOf(projMode) + 1) % order.length];
+    const tint = PROJ_TINTS[projMode];
+    projLensMat.color.setHex(tint.lens);
+    projRingMat.color.setHex(tint.lens === 0x000000 ? 0x102030 : tint.lens);
+    beamMat.color.setHex(tint.beam);
+    return PROJ_LABELS[projMode];
+  };
+
+  animated.push((t) => {
+    const on = projMode !== 'off';
+    beam.visible = on;
+    projPlane.visible = on;
+    if (!on) {
+      projLensMat.opacity = 0;
+      beamMat.opacity = 0;
+      projPlaneMat.opacity = 0;
+      return;
+    }
+    // breathing intensities — the projector "lives"
+    const flicker = 0.85 + 0.10 * Math.sin(t * 11) + 0.05 * Math.sin(t * 3.7);
+    projLensMat.opacity = 0.9 * flicker;
+    beamMat.opacity = 0.10 * flicker;
+    projPlaneMat.opacity = 0.78 * flicker;
+
+    const g = projCanvas.getContext('2d')!;
+    g.clearRect(0, 0, 1024, 1024);
+
+    if (projMode === 'cyber') {
+      // Star Wars hologram blue — dark navy + scanlines + planet outline + stars
+      g.fillStyle = 'rgba(2, 8, 28, 0.95)';
+      g.fillRect(0, 0, 1024, 1024);
+      // sweeping scan
+      const scanY = (t * 220) % 1024;
+      const grad = g.createLinearGradient(0, scanY - 40, 0, scanY + 40);
+      grad.addColorStop(0, 'rgba(120,200,255,0)');
+      grad.addColorStop(0.5, 'rgba(140,220,255,0.4)');
+      grad.addColorStop(1, 'rgba(120,200,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, scanY - 40, 1024, 80);
+      // hologram grid
+      g.strokeStyle = 'rgba(80,160,220,0.10)';
+      g.lineWidth = 1;
+      for (let i = 0; i < 1024; i += 32) {
+        g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 1024); g.stroke();
+        g.beginPath(); g.moveTo(0, i); g.lineTo(1024, i); g.stroke();
+      }
+      // many tiny stars
+      for (let i = 0; i < 110; i++) {
+        const seed = i * 73 + 13;
+        const x = (seed * 31) % 1024;
+        const y = (seed * 47) % 1024;
+        const fl = 0.4 + 0.6 * Math.sin(t * 2 + i * 0.7);
+        g.fillStyle = `rgba(190,220,255,${(fl * 0.9).toFixed(3)})`;
+        const sz = 1 + (i % 3);
+        g.fillRect(x, y, sz, sz);
+      }
+      // central planet outline + orbital ring
+      g.strokeStyle = '#5af2ff'; g.lineWidth = 2;
+      g.shadowColor = '#5af2ff'; g.shadowBlur = 14;
+      g.beginPath(); g.arc(512, 512, 160, 0, Math.PI * 2); g.stroke();
+      // ring tilted, slowly rotating
+      g.lineWidth = 1.4;
+      g.strokeStyle = 'rgba(170,220,255,0.7)';
+      g.beginPath();
+      g.ellipse(512, 512, 280, 60, t * 0.18, 0, Math.PI * 2);
+      g.stroke();
+      // moon
+      const mx = 512 + Math.cos(t * 0.45) * 280;
+      const my = 512 + Math.sin(t * 0.45) * 60;
+      g.fillStyle = '#a0e8ff';
+      g.beginPath(); g.arc(mx, my, 7, 0, Math.PI * 2); g.fill();
+      g.shadowBlur = 0;
+    } else if (projMode === 'cozy') {
+      // warm radial bloom + flickering embers
+      const grad = g.createRadialGradient(512, 512, 30, 512, 512, 480);
+      grad.addColorStop(0, 'rgba(255, 200, 110, 0.78)');
+      grad.addColorStop(0.4, 'rgba(255, 130, 50, 0.45)');
+      grad.addColorStop(1, 'rgba(40,10,5,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 1024, 1024);
+      // logs (dark central shape)
+      g.fillStyle = 'rgba(50, 25, 15, 0.6)';
+      g.beginPath();
+      g.ellipse(512, 540, 130, 28, 0.1, 0, Math.PI * 2); g.fill();
+      g.beginPath();
+      g.ellipse(512, 520, 100, 22, -0.2, 0, Math.PI * 2); g.fill();
+      // embers swirling
+      for (let i = 0; i < 70; i++) {
+        const seed = i * 91 + 7;
+        const baseX = 200 + (seed * 31) % 624;
+        const baseY = 200 + (seed * 53) % 624;
+        const sway = Math.sin(t * 1.5 + i * 0.7) * 30;
+        const x = baseX + sway;
+        const y = baseY + Math.cos(t * 0.8 + i) * 22;
+        const fl = 0.35 + 0.65 * Math.sin(t * 4 + i * 0.5);
+        const r = 4 + fl * 3;
+        const eg = g.createRadialGradient(x, y, 0, x, y, r);
+        eg.addColorStop(0, `rgba(255, 230, 110, ${fl.toFixed(3)})`);
+        eg.addColorStop(1, 'rgba(255, 90, 30, 0)');
+        g.fillStyle = eg;
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      }
+    } else { // planet (classic planetarium)
+      g.fillStyle = 'rgba(2, 4, 12, 0.96)';
+      g.fillRect(0, 0, 1024, 1024);
+      // milky way band
+      g.save();
+      g.translate(512, 512); g.rotate(-0.4);
+      const mw = g.createLinearGradient(-512, 0, 512, 0);
+      mw.addColorStop(0, 'rgba(120,140,200,0)');
+      mw.addColorStop(0.5, 'rgba(180,200,255,0.18)');
+      mw.addColorStop(1, 'rgba(120,140,200,0)');
+      g.fillStyle = mw;
+      g.fillRect(-512, -70, 1024, 140);
+      g.restore();
+      // dense star field
+      for (let i = 0; i < 280; i++) {
+        const seed = i * 53 + 11;
+        const x = (seed * 31) % 1024;
+        const y = (seed * 47) % 1024;
+        const fl = 0.5 + 0.5 * Math.sin(t * 1.5 + i);
+        const sz = i % 30 === 0 ? 3 : 1;
+        g.fillStyle = `rgba(240,240,255,${(fl * 0.85).toFixed(3)})`;
+        g.fillRect(x, y, sz, sz);
+      }
+      // Orion-ish constellation
+      const pts: Array<[number, number]> = [
+        [380, 380], [440, 460], [500, 500], [560, 460], [620, 380],
+        [580, 520], [560, 600], [500, 660], [440, 600], [420, 520],
+      ];
+      g.strokeStyle = 'rgba(200,220,255,0.45)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.stroke();
+      for (const [px, py] of pts) {
+        const fl = 0.7 + 0.3 * Math.sin(t * 2 + px);
+        g.fillStyle = `rgba(255,245,225,${fl.toFixed(3)})`;
+        g.beginPath(); g.arc(px, py, 3, 0, Math.PI * 2); g.fill();
+      }
+    }
+    projTex.needsUpdate = true;
+  });
+  const starProjector = { hit: projDome, cycle: cycleProjector,
+    isOn: () => projMode !== 'off',
+    currentMode: () => projMode as string };
+
+  // ---------- mezz neon wall décor (cyberpunk sleeping area) ----------
+  // 1) Synthwave SUN above the bed — 8 horizontal bars in semicircle, gradient
+  //    orange (horizon) → magenta (zenith). On the back wall just above the bed.
+  {
+    const SUN_R = 0.5;
+    const SUN_BARS = 8;
+    const SUN_CX = -3.6, SUN_CY = MEZZ_Y + 1.7, SUN_Z = -6.83;
+    for (let i = 0; i < SUN_BARS; i++) {
+      const t = i / (SUN_BARS - 1);                 // 0 horizon → 1 zenith
+      const y = SUN_CY + t * SUN_R * 0.92;
+      const dy = y - SUN_CY;
+      const halfW = Math.sqrt(Math.max(0, SUN_R * SUN_R - dy * dy));
+      // gradient: 0xff8a3d (orange) → 0xff2bdb (magenta)
+      const r = Math.round(255 * (1 - t * 0.0));
+      const g = Math.round((1 - t) * 138 + t * 43);
+      const b = Math.round((1 - t) * 61  + t * 219);
+      const color = (r << 16) | (g << 8) | b;
+      const bar = new THREE.Mesh(
+        new THREE.BoxGeometry(halfW * 2, 0.032, 0.020),
+        new THREE.MeshStandardMaterial({
+          color: 0x05060a, emissive: color, emissiveIntensity: 2.0, roughness: 0.4,
+        }),
+      );
+      bar.position.set(SUN_CX, y, SUN_Z);
+      group.add(bar);
+    }
+  }
+
+  // 2) Floating CJK character 夢 (dream) — canvas-textured plane with bloom
+  {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 256;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.font = 'bold 196px serif';
+    ctx.fillStyle = '#5af2ff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#5af2ff';
+    ctx.shadowBlur = 32;
+    ctx.fillText('夢', 128, 138);
+    // pass again — multiple shadowed strokes deepen the bloom
+    ctx.shadowBlur = 12;
+    ctx.fillText('夢', 128, 138);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const dream = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.55),
+      new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    dream.position.set(-3.6, MEZZ_Y + 0.55, -6.83);
+    group.add(dream);
+  }
+
+  // 3) Three vertical neon tube columns on the left wall beside the bed
+  //    (cyan / magenta / purple — synthwave gradient)
+  for (let i = 0; i < 3; i++) {
+    const z = -5.8 + i * 0.55;                      // -5.8, -5.25, -4.70
+    const color = [0x5af2ff, 0xff2bdb, 0xb44dff][i];
+    strip(0.04, 1.3, 0.04, color, -5.83, MEZZ_Y + 1.0, z, 2.2);
+  }
 
   // ---------- bathroom pod (under the mezzanine, right-back corner) ----------
   // capsule look from outside: frosted panel + neon edge strips (no real
@@ -723,6 +1199,30 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   );
   washerRing.position.copy(washerDoor.position);
   group.add(washerRing);
+  // SONIC WASH label above the door — "this isn't your grandma's washer, it's a
+  // sonic-cleaning capsule" lore touch.
+  const sonicLabel = (() => {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#02060a'; g.fillRect(0, 0, 256, 64);
+    g.font = 'bold 22px sans-serif';
+    g.fillStyle = '#5af2ff';
+    g.shadowColor = '#5af2ff'; g.shadowBlur = 12;
+    g.fillText('SONIC WASH', 32, 38);
+    g.shadowBlur = 0;
+    g.font = '11px monospace';
+    g.fillStyle = '#39ff88';
+    g.fillText('K3-Ultrasonic', 32, 56);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Mesh(
+      new THREE.PlaneGeometry(0.36, 0.09),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
+    );
+  })();
+  sonicLabel.position.set(1.95, 0.78, -6.165);
+  group.add(sonicLabel);
   let washing = 0;
   animated.push((t) => {
     if (washing > 0) {
@@ -810,41 +1310,382 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
     min: new THREE.Vector3(0.1, MEZZ_Y, -6.85),
     max: new THREE.Vector3(1.3, MEZZ_Y + 2.2, -6.35),
   });
-  box(0.02, 2.0, 0.02, matDark, 0.7, MEZZ_Y + 1.1, -6.34);        // door seam
-  strip(0.03, 1.9, 0.02, 0x5af2ff, 1.24, MEZZ_Y + 1.1, -6.33, 0.8);
-  // open rail with the actual outfits — the one you wear leaves the rail
-  const OUTFITS: Array<[number, number, string]> = [
-    [0x141a28, 0x5af2ff, '夜行黑 × 電氣青'],
-    [0x2a1230, 0xff2bdb, '暗紫 × 霓紅粉'],
-    [0x2e2618, 0xffd24d, '軍墨 × 鍍金'],
-    [0x102218, 0x39ff88, '叢林綠 × 駭客綠'],
-    [0x301518, 0xff5566, '猩紅 × 警示紅'],
+  const doorSeam = box(0.02, 2.0, 0.02, matDark, 0.7, MEZZ_Y + 1.1, -6.34);
+  const doorAccent = strip(0.03, 1.9, 0.02, 0x5af2ff, 1.24, MEZZ_Y + 1.1, -6.33, 0.8);
+  // mirror-door overlay: invisible by default. When the player changes outfit,
+  // it flashes in over the wardrobe face (faked reflection via polished
+  // metallic material) and fades out again. No real reflector — too costly
+  // on iGPU when one's already running in the bathroom.
+  const mirrorMat = new THREE.MeshStandardMaterial({
+    color: 0xb8c6dd, metalness: 1.0, roughness: 0.06,
+    transparent: true, opacity: 0,
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.4,
+  });
+  const mirrorDoor = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 2.18), mirrorMat);
+  mirrorDoor.position.set(0.7, MEZZ_Y + 1.1, -6.345);
+  mirrorDoor.visible = false;
+  group.add(mirrorDoor);
+  // Stylized cyberpunk avatar painted onto the mirror — repainted on each
+  // outfit cycle so the figure wears the chosen suit colour + accent.
+  // Drawn from primitives (head, jacket silhouette, leg pants, gear).
+  const avatarCanvas = document.createElement('canvas');
+  avatarCanvas.width = 360; avatarCanvas.height = 760;
+  const avatarSil = new THREE.CanvasTexture(avatarCanvas);
+  avatarSil.colorSpace = THREE.SRGBColorSpace;
+  const hexToCss = (h: number): string =>
+    `#${h.toString(16).padStart(6, '0')}`;
+  const paintAvatar = (
+    type: 'biker' | 'trench' | 'military' | 'hooded' | 'kimono',
+    suitHex: number, accentHex: number,
+  ): void => {
+    const g = avatarCanvas.getContext('2d')!;
+    g.clearRect(0, 0, 360, 760);
+    // background rim glow (soft halo behind the figure)
+    const grd = g.createRadialGradient(180, 380, 80, 180, 380, 320);
+    grd.addColorStop(0, `${hexToCss(accentHex)}33`);
+    grd.addColorStop(1, 'transparent');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 360, 760);
+    const suit = hexToCss(suitHex);
+    const accent = hexToCss(accentHex);
+    // skin tone (cool grey-blue under city lights)
+    const skin = '#c8d4e0';
+    // pants (always dark)
+    const pants = '#1a1c28';
+
+    // helpers
+    const fill = (color: string, pts: [number, number][]): void => {
+      g.fillStyle = color; g.beginPath();
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.closePath(); g.fill();
+    };
+    const stroke = (color: string, w: number, pts: [number, number][]): void => {
+      g.strokeStyle = color; g.lineWidth = w; g.beginPath();
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.stroke();
+    };
+
+    // ---- head ----
+    g.shadowColor = accent; g.shadowBlur = 16;
+    g.fillStyle = skin;
+    g.beginPath(); g.ellipse(180, 130, 52, 60, 0, 0, Math.PI * 2); g.fill();
+    g.shadowBlur = 0;
+    // hair / hood / helmet depending on outfit
+    if (type === 'hooded') {
+      // pulled-up hood covering top of head
+      fill(suit, [[122, 110], [180, 50], [238, 110], [232, 155], [128, 155]]);
+    } else if (type === 'kimono') {
+      // bun + hair pins
+      g.fillStyle = '#0a0810';
+      g.beginPath(); g.arc(180, 78, 22, 0, Math.PI * 2); g.fill();
+      g.fillStyle = accent;
+      g.fillRect(168, 60, 6, 22);
+    } else if (type === 'military') {
+      // peaked cap
+      fill('#1a1418', [[120, 92], [240, 92], [255, 76], [105, 76]]);
+      fill(accent, [[120, 92], [240, 92], [240, 100], [120, 100]]);
+    } else {
+      // undercut hair: shaved sides + top wave
+      g.fillStyle = '#0a0a14';
+      g.beginPath(); g.ellipse(180, 88, 50, 38, 0, Math.PI, 0); g.fill();
+      // single neon hair streak
+      g.fillStyle = accent;
+      g.fillRect(170, 56, 10, 30);
+    }
+    // cyber eye / visor line
+    g.strokeStyle = accent; g.lineWidth = 3;
+    g.shadowColor = accent; g.shadowBlur = 12;
+    g.beginPath(); g.moveTo(140, 132); g.lineTo(220, 132); g.stroke();
+    g.shadowBlur = 0;
+
+    // ---- neck + shoulders ----
+    fill(skin, [[166, 188], [194, 188], [200, 218], [160, 218]]);
+
+    // ---- jacket / outerwear silhouette ----
+    if (type === 'biker') {
+      // short jacket, sharp shoulders, wide collar
+      fill(suit, [
+        [110, 222], [250, 222], [262, 252], [262, 405], [240, 415], [120, 415], [98, 405], [98, 252],
+      ]);
+      // open collar
+      fill('#0a0a12', [[150, 218], [210, 218], [200, 270], [180, 290], [160, 270]]);
+      // central zipper
+      g.strokeStyle = accent; g.lineWidth = 4;
+      g.beginPath(); g.moveTo(180, 270); g.lineTo(180, 410); g.stroke();
+      // stud row
+      g.fillStyle = accent;
+      for (let i = 0; i < 5; i++) {
+        g.beginPath(); g.arc(220, 280 + i * 26, 4, 0, Math.PI * 2); g.fill();
+      }
+      // shoulder piping
+      stroke(accent, 3, [[112, 226], [98, 252]]);
+      stroke(accent, 3, [[248, 226], [262, 252]]);
+    } else if (type === 'trench') {
+      // long trench, sash, wide lapels
+      fill(suit, [
+        [104, 220], [256, 220], [268, 250], [268, 540], [246, 560], [114, 560], [92, 540], [92, 250],
+      ]);
+      // lapels
+      fill(accent, [[150, 222], [180, 280], [160, 360], [128, 290]]);
+      fill(accent, [[210, 222], [180, 280], [200, 360], [232, 290]]);
+      // sash / belt
+      fill(accent, [[92, 390], [268, 390], [268, 412], [92, 412]]);
+      // belt buckle
+      g.fillStyle = '#0a0a12';
+      g.fillRect(174, 388, 12, 26);
+    } else if (type === 'military') {
+      // medium length, epaulettes, double-row buttons
+      fill(suit, [
+        [110, 220], [250, 220], [262, 250], [262, 480], [240, 495], [120, 495], [98, 480], [98, 250],
+      ]);
+      // epaulettes
+      fill(accent, [[100, 224], [148, 224], [150, 242], [102, 242]]);
+      fill(accent, [[212, 224], [260, 224], [258, 242], [210, 242]]);
+      // brass buttons two columns
+      g.fillStyle = accent;
+      for (let i = 0; i < 6; i++) {
+        for (const x of [156, 204]) {
+          g.beginPath(); g.arc(x, 260 + i * 36, 5, 0, Math.PI * 2); g.fill();
+        }
+      }
+      // high standing collar
+      fill(suit, [[150, 218], [210, 218], [212, 232], [148, 232]]);
+    } else if (type === 'hooded') {
+      // tech hoodie, drawstrings, neon side panels
+      fill(suit, [
+        [110, 222], [250, 222], [260, 254], [260, 430], [240, 442], [120, 442], [100, 430], [100, 254],
+      ]);
+      // hood drape on shoulders
+      fill('#0a0a12', [[110, 222], [180, 270], [250, 222], [240, 240], [180, 280], [120, 240]]);
+      // drawstrings
+      stroke(accent, 3, [[164, 230], [164, 286]]);
+      stroke(accent, 3, [[196, 230], [196, 286]]);
+      // neon side panels
+      g.fillStyle = accent;
+      g.fillRect(100, 260, 6, 160);
+      g.fillRect(254, 260, 6, 160);
+      // kanji on chest
+      g.fillStyle = accent; g.font = 'bold 28px serif';
+      g.shadowColor = accent; g.shadowBlur = 12;
+      g.fillText('夜', 158, 360);
+      g.shadowBlur = 0;
+    } else { // kimono
+      fill(suit, [
+        [90, 220], [270, 220], [288, 270], [276, 540], [254, 560], [106, 560], [84, 540], [72, 270],
+      ]);
+      // wide sleeves
+      fill(suit, [[60, 240], [110, 250], [120, 420], [50, 410]]);
+      fill(suit, [[300, 240], [250, 250], [240, 420], [310, 410]]);
+      // obi sash
+      fill(accent, [[84, 380], [276, 380], [276, 416], [84, 416]]);
+      // V-neck stripes
+      fill(accent, [[150, 218], [180, 300], [160, 380], [128, 290]]);
+      fill(accent, [[210, 218], [180, 300], [200, 380], [232, 290]]);
+    }
+
+    // ---- pants / legs ----
+    const legTop = (type === 'trench' || type === 'kimono' || type === 'military') ? 540 : 415;
+    fill(pants, [
+      [130, legTop], [180, legTop],
+      [170, 740], [125, 740],
+    ]);
+    fill(pants, [
+      [180, legTop], [230, legTop],
+      [235, 740], [190, 740],
+    ]);
+    // accent stripes down legs
+    stroke(accent, 3, [[140, legTop + 20], [134, 730]]);
+    stroke(accent, 3, [[220, legTop + 20], [226, 730]]);
+
+    // ---- boots ----
+    g.fillStyle = '#080812';
+    g.fillRect(116, 728, 60, 24);
+    g.fillRect(184, 728, 60, 24);
+    g.fillStyle = accent;
+    g.fillRect(116, 750, 60, 4);
+    g.fillRect(184, 750, 60, 4);
+
+    avatarSil.needsUpdate = true;
+  };
+  // initial paint matches outfit index 0
+  paintAvatar('biker', 0x141a28, 0x5af2ff);
+  const silhouettePlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.85, 1.9),
+    new THREE.MeshBasicMaterial({
+      map: avatarSil, transparent: true,
+      blending: THREE.NormalBlending, depthWrite: false, opacity: 0,
+    }),
+  );
+  silhouettePlane.position.set(0.7, MEZZ_Y + 1.0, -6.342);
+  silhouettePlane.visible = false;
+  group.add(silhouettePlane);
+
+  // open rail with the actual outfits — each is a stylized jacket built from
+  // primitives. Five distinct silhouettes match the OUTFITS list below.
+  const OUTFITS: Array<[number, number, string, 'biker' | 'trench' | 'military' | 'hooded' | 'kimono']> = [
+    [0x141a28, 0x5af2ff, '夜行黑 × 電氣青 (機車夾克)', 'biker'],
+    [0x2a1230, 0xff2bdb, '暗紫 × 霓紅粉 (長版風衣)', 'trench'],
+    [0x2e2618, 0xffd24d, '軍墨 × 鍍金 (軍式大衣)', 'military'],
+    [0x102218, 0x39ff88, '叢林綠 × 駭客綠 (連帽外套)', 'hooded'],
+    [0x301518, 0xff5566, '猩紅 × 警示紅 (霓虹和服)', 'kimono'],
   ];
-  box(0.03, 0.03, 1.1, matSteel, 1.95, MEZZ_Y + 1.95, -6.6);       // rail
-  const jackets: THREE.Mesh[] = [];
-  OUTFITS.forEach(([suit], i) => {
-    const jz = -6.78 + 0.18 * i; // evenly spaced under the rail
+
+  const buildJacket = (type: typeof OUTFITS[0][3], suit: number, accent: number): THREE.Group => {
+    const g = new THREE.Group();
+    const bodyMat = new THREE.MeshLambertMaterial({ color: suit });
+    const accentMat = new THREE.MeshBasicMaterial({ color: accent });
+    switch (type) {
+      case 'biker': {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.46, 0.05), bodyMat);
+        body.position.y = -0.05; g.add(body);
+        const collar = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.07, 0.055), bodyMat);
+        collar.position.y = 0.215; g.add(collar);
+        const zip = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.44, 0.006), accentMat);
+        zip.position.set(0, -0.05, 0.029); g.add(zip);
+        for (const dx of [-0.12, 0.12]) {
+          const epaul = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.014, 0.006), accentMat);
+          epaul.position.set(dx, 0.17, 0.029); g.add(epaul);
+        }
+        // zipper studs along front
+        for (let j = 0; j < 4; j++) {
+          const stud = new THREE.Mesh(new THREE.CircleGeometry(0.006, 8), accentMat);
+          stud.position.set(0.06, 0.1 - j * 0.10, 0.030);
+          g.add(stud);
+        }
+        break;
+      }
+      case 'trench': {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.84, 0.07), bodyMat);
+        body.position.y = -0.25; g.add(body);
+        const lapL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.32, 0.04), accentMat);
+        lapL.position.set(-0.085, 0.06, 0.038); lapL.rotation.z = -0.18; g.add(lapL);
+        const lapR = lapL.clone();
+        lapR.position.x = 0.085; lapR.rotation.z = 0.18; g.add(lapR);
+        const belt = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.038, 0.072), accentMat);
+        belt.position.y = -0.18; g.add(belt);
+        // standing collar
+        const collar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.06, 0.06), bodyMat);
+        collar.position.y = 0.22; g.add(collar);
+        break;
+      }
+      case 'military': {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.66, 0.06), bodyMat);
+        body.position.y = -0.15; g.add(body);
+        for (const dx of [-0.135, 0.135]) {
+          const epaul = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.022, 0.075), accentMat);
+          epaul.position.set(dx, 0.18, 0); g.add(epaul);
+        }
+        // brass buttons in two columns
+        for (let j = 0; j < 4; j++) {
+          for (const dx of [-0.05, 0.05]) {
+            const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.005, 10), accentMat);
+            btn.rotation.x = Math.PI / 2;
+            btn.position.set(dx, 0.1 - j * 0.13, 0.034); g.add(btn);
+          }
+        }
+        // standing high collar
+        const collar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.07, 0.07), bodyMat);
+        collar.position.y = 0.225; g.add(collar);
+        break;
+      }
+      case 'hooded': {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.54, 0.06), bodyMat);
+        body.position.y = -0.10; g.add(body);
+        // hood (rounded-ish: box + small cylinder cap)
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.18, 0.12), bodyMat);
+        hood.position.y = 0.27; g.add(hood);
+        const hoodTop = new THREE.Mesh(new THREE.SphereGeometry(0.10, 12, 8), bodyMat);
+        hoodTop.position.set(0, 0.30, 0.0); hoodTop.scale.y = 0.7; g.add(hoodTop);
+        // neon trim down both sides + drawstring tips
+        for (const dx of [-0.16, 0.16]) {
+          const trim = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.5, 0.005), accentMat);
+          trim.position.set(dx, -0.10, 0.032); g.add(trim);
+        }
+        for (const dx of [-0.04, 0.04]) {
+          const string_ = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.18, 6), accentMat);
+          string_.position.set(dx, 0.10, 0.033); g.add(string_);
+        }
+        break;
+      }
+      case 'kimono': {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.72, 0.05), bodyMat);
+        body.position.y = -0.20; g.add(body);
+        // wide sleeves flaring out
+        const sleeveL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.04), bodyMat);
+        sleeveL.position.set(-0.21, -0.13, 0); sleeveL.rotation.z = -0.12; g.add(sleeveL);
+        const sleeveR = sleeveL.clone();
+        sleeveR.position.x = 0.21; sleeveR.rotation.z = 0.12; g.add(sleeveR);
+        // obi (waist sash)
+        const obi = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.10, 0.054), accentMat);
+        obi.position.y = -0.05; g.add(obi);
+        // V-neck stripes
+        const collarL = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.22, 0.005), accentMat);
+        collarL.position.set(-0.06, 0.13, 0.027); collarL.rotation.z = 0.18; g.add(collarL);
+        const collarR = collarL.clone();
+        collarR.position.x = 0.06; collarR.rotation.z = -0.18; g.add(collarR);
+        break;
+      }
+    }
+    return g;
+  };
+
+  // The rail + hanging jackets are kept in scene but HIDDEN behind the closed
+  // wardrobe door — the user found the boxy procedural jackets unattractive.
+  // Visible state is replaced by the painted cyberpunk avatar on the mirror
+  // (see paintAvatar above). Keeping the jackets array around lets future
+  // work re-enable them with proper GLB models if we ever drop one in.
+  const wardrobeRail = box(0.03, 0.03, 1.1, matSteel, 1.95, MEZZ_Y + 1.95, -6.6);
+  wardrobeRail.visible = false;
+  const jackets: THREE.Object3D[] = [];
+  OUTFITS.forEach(([suit, accent, , type], i) => {
+    const jz = -6.78 + 0.18 * i;
     const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.1, 6), matSteel);
     hanger.position.set(1.95, MEZZ_Y + 1.89, jz);
+    hanger.visible = false;
     group.add(hanger);
-    const jacket = new THREE.Mesh(
-      new THREE.BoxGeometry(0.3, 0.52, 0.06), // flat side along the rail, like real hangers
-      new THREE.MeshLambertMaterial({ color: suit }),
-    );
+    const jacket = buildJacket(type, suit, accent);
     jacket.position.set(1.95, MEZZ_Y + 1.56, jz);
+    jacket.visible = false;
     group.add(jacket);
     jackets.push(jacket);
   });
   let outfitIdx = 0;
-  jackets[0].visible = false; // wearing the first one already
+
+  // mirror animation state — triggered by cycleOutfit, driven by animated tick.
+  let mirrorTriggerArmed = false;
+  let mirrorStartT = -10;
+  const MIRROR_UP = 0.35, MIRROR_HOLD = 1.6, MIRROR_DOWN = 0.6;
+  animated.push((t) => {
+    if (mirrorTriggerArmed) { mirrorStartT = t; mirrorTriggerArmed = false; }
+    const dt = t - mirrorStartT;
+    let op = 0;
+    if (dt < 0) op = 0;
+    else if (dt < MIRROR_UP) op = dt / MIRROR_UP;
+    else if (dt < MIRROR_UP + MIRROR_HOLD) op = 1;
+    else if (dt < MIRROR_UP + MIRROR_HOLD + MIRROR_DOWN)
+      op = 1 - (dt - MIRROR_UP - MIRROR_HOLD) / MIRROR_DOWN;
+    else op = 0;
+    mirrorMat.opacity = op;
+    mirrorDoor.visible = op > 0.01;
+    (silhouettePlane.material as THREE.MeshBasicMaterial).opacity = op * 0.9;
+    silhouettePlane.visible = op > 0.01;
+    // hide the seam & accent strip behind the mirror while it's fully up
+    const hideDoorFurn = op > 0.4;
+    doorSeam.visible = !hideDoorFurn;
+    doorAccent.visible = !hideDoorFurn;
+  });
+
   const cycleOutfit = (): string => {
-    jackets[outfitIdx].visible = true;            // hang the old one back
     outfitIdx = (outfitIdx + 1) % OUTFITS.length;
-    jackets[outfitIdx].visible = false;           // take the next one off the rail
-    const [suit, accent, name] = OUTFITS[outfitIdx];
+    const [suit, accent, name, type] = OUTFITS[outfitIdx];
     matBodySuit.color.setHex(suit);
     (visor.material as THREE.MeshBasicMaterial).color.setHex(accent);
     (chest.material as THREE.MeshBasicMaterial).color.setHex(accent);
+    paintAvatar(type, suit, accent);              // repaint mirror avatar
+    mirrorTriggerArmed = true;                    // flash the mirror door
     return name;
   };
 
@@ -908,8 +1749,11 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
       isOpen: () => entryOpen,
       package: pkg,
       setDelivered: (on) => { pkg.visible = on; },
+      keypad,
     },
     wardrobe: { mesh: wardrobe, cycleOutfit },
+    starProjector,
+    fridge: { hit: fridgeHit, toggle: toggleFridge, isOpen: () => fridgeOpen },
   };
 
   // ---------- helpers ----------
@@ -1100,6 +1944,189 @@ function makeConcreteTexture(): THREE.CanvasTexture {
       g.beginPath(); g.moveTo(0, p); g.lineTo(512, p); g.stroke();
     }
   });
+}
+
+function buildGamingChair(
+  group: THREE.Group, cx: number, cy: number, cz: number, facing: number,
+  matFrame: THREE.Material, matMetal: THREE.Material,
+): void {
+  // Esports/racing seat — high-back, bolstered, with 5-star caster base. Built
+  // entirely from primitives so it stays cheap on the iGPU.
+  const chair = new THREE.Group();
+  chair.position.set(cx, cy, cz);
+  chair.rotation.y = facing;   // facing = +π/2 → seat faces +x (toward desk)
+  group.add(chair);
+
+  const matSeatFabric = new THREE.MeshLambertMaterial({ color: 0x0c0e18 });
+  const matBolster   = new THREE.MeshLambertMaterial({ color: 0x171a28 });
+  const matAccent    = new THREE.MeshBasicMaterial({ color: 0xff2bdb });
+  const matAccentCy  = new THREE.MeshBasicMaterial({ color: 0x5af2ff });
+  const matPillow    = new THREE.MeshLambertMaterial({ color: 0x1c1d2c });
+
+  const add = (mesh: THREE.Mesh, x: number, y: number, z: number,
+               rx = 0, ry = 0, rz = 0): THREE.Mesh => {
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, ry, rz);
+    chair.add(mesh);
+    return mesh;
+  };
+
+  // ---- 5-star base + casters ----
+  // central hub
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 16), matMetal), 0, 0.07, 0);
+  // 5 legs radiating out with proper caster brackets at the ends
+  for (let i = 0; i < 5; i++) {
+    const a = i * Math.PI * 2 / 5;
+    const legGroup = new THREE.Group();
+    legGroup.rotation.y = a;                     // local +x points outward along the leg
+    // tapered leg arm
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.06), matMetal);
+    leg.position.set(0.16, 0.075, 0);            // raised to clear the wheel
+    legGroup.add(leg);
+    // caster yoke (bracket between leg and wheel)
+    const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.06, 0.07), matMetal);
+    yoke.position.set(0.32, 0.06, 0);
+    legGroup.add(yoke);
+    // wheel — cylinder axis along local Z so it rolls in the leg's +x direction
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.030, 16), matMetal);
+    wheel.rotation.x = Math.PI / 2;              // Y axis → Z axis = horizontal wheel
+    wheel.position.set(0.32, 0.035, 0);          // wheel centre at radius=0.035 → bottom touches floor
+    legGroup.add(wheel);
+    chair.add(legGroup);
+  }
+  // gas piston column (raised so it starts above the hub top)
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.36, 12), matMetal), 0, 0.275, 0);
+  // seat tilt plate (small disc above piston)
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.02, 16), matMetal), 0, 0.465, 0);
+
+  // ---- seat pan with bolsters (racing-seat profile) ----
+  // main seat cushion
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.08, 0.50), matSeatFabric), 0, 0.505, 0);
+  // side bolsters (left/right raised cushions)
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.13, 0.42), matBolster), -0.22, 0.535, 0);
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.13, 0.42), matBolster),  0.22, 0.535, 0);
+  // accent piping along seat front edge
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.012, 0.012), matAccent), 0, 0.548, 0.25);
+
+  // ---- tall backrest with central spine + side wings ----
+  // central back panel (slight backward lean)
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.85, 0.10), matSeatFabric);
+  back.position.set(0, 0.96, -0.20);
+  back.rotation.x = -0.18;   // slight recline
+  chair.add(back);
+  // side back wings (bolsters extending up)
+  for (const sx of [-0.20, 0.20]) {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.78, 0.10), matBolster);
+    wing.position.set(sx, 0.94, -0.18);
+    wing.rotation.x = -0.18;
+    chair.add(wing);
+  }
+  // RGB accent strip running vertically down the back spine
+  const accent = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.78, 0.012), matAccentCy);
+  accent.position.set(0, 0.94, -0.135);
+  accent.rotation.x = -0.18;
+  chair.add(accent);
+
+  // ---- head pillow ----
+  const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.12), matPillow);
+  pillow.position.set(0, 1.42, -0.18);
+  pillow.rotation.x = -0.18;
+  chair.add(pillow);
+
+  // ---- lumbar pillow (small cushion in the lower back) ----
+  const lumbar = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.12, 0.10), matPillow);
+  lumbar.position.set(0, 0.78, -0.14);
+  lumbar.rotation.x = -0.18;
+  chair.add(lumbar);
+
+  // ---- armrests ----
+  for (const sx of [-0.30, 0.30]) {
+    // vertical post
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.18, 0.04), matMetal),
+        sx, 0.635, -0.05);
+    // armrest pad
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.32), matSeatFabric),
+        sx, 0.745, -0.02);
+    // armrest accent
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.005, 0.30), matAccent),
+        sx, 0.768, -0.02);
+  }
+
+  // ---- logo badge on the headrest ----
+  add(new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.04), matAccentCy),
+      0, 1.43, -0.122, -0.18);
+}
+
+function makeDarkStoneTexture(): THREE.CanvasTexture {
+  // dark engineered stone / laminate: subtle warm-violet veins + scratch streaks +
+  // sparse dust speckle. Designed to read as "expensive worn surface" on the
+  // counters/desk/coffee table.
+  const tex = canvasTexture(512, 512, (g) => {
+    // base
+    const grad = g.createLinearGradient(0, 0, 512, 512);
+    grad.addColorStop(0, '#0e1020');
+    grad.addColorStop(0.5, '#171a2e');
+    grad.addColorStop(1, '#0c0e1c');
+    g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
+    // long winding mineral veins
+    for (let i = 0; i < 6; i++) {
+      g.strokeStyle = `rgba(${[180,140,210][i%3]},${[140,120,180][i%3]},${[220,180,240][i%3]},${0.06 + Math.random()*0.04})`;
+      g.lineWidth = 0.8 + Math.random() * 1.2;
+      g.beginPath();
+      let x = Math.random() * 512, y = Math.random() * 512;
+      g.moveTo(x, y);
+      for (let s = 0; s < 90; s++) {
+        x += (Math.random() - 0.5) * 22;
+        y += (Math.random() - 0.5) * 22;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // hairline scratches
+    g.strokeStyle = 'rgba(255,255,255,0.04)';
+    g.lineWidth = 0.5;
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512;
+      const len = 10 + Math.random() * 60;
+      const ang = Math.random() * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      g.stroke();
+    }
+    // micro dust speckle (high freq noise)
+    const img = g.getImageData(0, 0, 512, 512);
+    for (let p = 0; p < img.data.length; p += 4) {
+      const n = (Math.random() - 0.5) * 12;
+      img.data[p]   = Math.max(0, Math.min(255, img.data[p]   + n));
+      img.data[p+1] = Math.max(0, Math.min(255, img.data[p+1] + n));
+      img.data[p+2] = Math.max(0, Math.min(255, img.data[p+2] + n));
+    }
+    g.putImageData(img, 0, 0);
+  });
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);  // tile the pattern so it doesn't read as a single mark
+  return tex;
+}
+
+function makeDarkStoneRoughness(): THREE.CanvasTexture {
+  // bright = rougher, dark = glossier. Stone is mostly satin (~0.6) with
+  // occasional polished patches around the veins.
+  const tex = canvasTexture(256, 256, (g) => {
+    g.fillStyle = '#8c8c8c'; g.fillRect(0, 0, 256, 256);  // satin baseline
+    for (let i = 0; i < 12; i++) {
+      const x = Math.random() * 256, y = Math.random() * 256, r = 18 + Math.random() * 50;
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, 'rgba(48,48,48,0.6)');   // glossier centre
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  });
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  return tex;
 }
 
 function makeConcreteRoughness(): THREE.CanvasTexture {

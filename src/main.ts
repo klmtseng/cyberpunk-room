@@ -13,6 +13,8 @@ import { Ambience, speakerGain } from './world/audio';
 import { HoloArcade } from './world/arcade';
 import { ROOM_BOUNDS } from './world/room';
 import { buildProps } from './world/props';
+import { buildBarLantern, buildDeskLantern, type Lantern } from './world/lantern';
+import { buildFlipMosaic, type FlipMosaic } from './world/flip_mosaic';
 import { CyberOS } from './pc/os';
 import { saveOverride } from './engine/quality';
 
@@ -63,6 +65,7 @@ async function boot() {
       ambience.start(); // user gesture satisfied
       // distant holo-ads may speak softly once a gesture unlocks audio
       try { city.adVideo.muted = false; city.adVideo.volume = 0.12; } catch { /* keep muted */ }
+      try { castVideo.muted = false; } catch { /* keep muted */ }
     }
   });
   canvas.addEventListener('click', () => {
@@ -75,6 +78,60 @@ async function boot() {
 
   step(0.82);
   const props = buildProps(ctx);
+
+  // Turkish brass+mosaic-glass lantern on the bar/island — Blender-built GLB,
+  // E to toggle, stained-glass glow when lit. Loaded async; if the GLB or
+  // mosaic texture fails the rest of the room boots anyway.
+  let lantern: Lantern | null = null;
+  buildBarLantern(new THREE.Vector3(-1.72, 0.952, -4.32), () => {
+    ambience.blip(820); ambience.blip(640);
+  }).then((l) => {
+    lantern = l;
+    ctx.scene.add(l.group);
+    interact.add(l.hit, l.isOn() ? '熄滅馬賽克燈籠' : '點亮馬賽克燈籠', () => {
+      const on = l.toggle();
+      interact.flash(on ? '🪔 馬賽克燈籠點亮 — 彩繪玻璃' : '🪔 燈籠熄滅');
+    }, 2.4);
+  }).catch((e) => console.warn('[lantern] load failed', e));
+
+  // Second Turkish lamp on the netrunner desk — bigger, more ornate piece
+  // (IMG_5728-31). Texture is the user's actual photos stitched into an
+  // equirect panorama (tools/lantern/extract_desk_mosaic.py), not procedural.
+  // 3-state brightness cycle: off → dim → bright → off.
+  // Desk top is at y=0.795; place the lamp at the right-front corner.
+  let deskLantern: Lantern | null = null;
+  buildDeskLantern(new THREE.Vector3(5.85, 0.80, 2.95), () => {
+    ambience.blip(880); ambience.blip(660);
+  }).then((l) => {
+    deskLantern = l;
+    ctx.scene.add(l.group);
+    const promptFor = (s: string): string =>
+      s === 'off' ? '亮一級' : s === 'dim' ? '亮二級' : '熄滅';
+    interact.add(l.hit, '土耳其檯燈 — 切換亮度', () => {
+      const newLevel = l.cycle();
+      const labelZh = newLevel === 'off' ? '熄滅'
+        : newLevel === 'dim' ? '微亮 (氛圍)'
+        : '明亮';
+      interact.flash(`💡 桌燈 → ${labelZh},再按一次:${promptFor(newLevel)}`);
+    }, 2.4);
+  }).catch((e) => console.warn('[deskLantern] load failed', e));
+
+  // Flip-tile mosaic on the kitchen backsplash slot (replaces the static
+  // purple grid). 28×5 tiles wave-flip to reveal Met Open Access art / 夜貓
+  // procedural portraits / abstract patterns — see tools/mosaic/build_art_cache.py.
+  let mosaic: FlipMosaic | null = null;
+  buildFlipMosaic({
+    center: new THREE.Vector3(-2.0, 1.45, -6.86),
+    width: 4.6, height: 0.8, cols: 28, rows: 5,
+  }).then((m) => {
+    mosaic = m;
+    ctx.scene.add(m.group);
+    interact.add(m.hit, '翻牌馬賽克 — 換一幅', () => {
+      const label = m.reveal();
+      interact.flash(`🖼 馬賽克牆 → ${label}`);
+      ambience.blip(720); ambience.blip(540);
+    }, 3.4);
+  }).catch((e) => console.warn('[mosaic] load failed', e));
 
   // ---------- weather state (terminal-controllable) ----------
   let weatherLevel: 'off' | 'light' | 'heavy' = 'light';
@@ -194,6 +251,11 @@ async function boot() {
   const castVideo = document.createElement('video');
   castVideo.playsInline = true;
   castVideo.preload = 'auto';
+  // muted until a user gesture is observed; otherwise Firefox/Chrome autoplay
+  // policy rejects play() when the page hasn't been interacted with yet, and
+  // the headless smoke-test path needs to be able to fire cast commands
+  // remotely. See onLockChange below for the unmute hook.
+  castVideo.muted = true;
   let castingTitle = '';
   const stopCast = () => {
     castVideo.pause();
@@ -204,15 +266,25 @@ async function boot() {
     castingTitle = '';
   };
   castVideo.addEventListener('ended', stopCast);
-  const castToTV = async (id: string): Promise<string> => {
+  const castToTV = async (id: string, dest: 'tv' | 'wall' = 'tv'): Promise<string> => {
     try {
       const r = await (await fetch(`/__resolve?id=${encodeURIComponent(id)}`)).json();
       if (!r.url) throw new Error(r.error ?? 'resolve failed');
       castVideo.src = `/__stream?u=${encodeURIComponent(r.url)}`;
       await castVideo.play();
-      props.tv.cast(castVideo);
       city.setAdsPaused(true);     // one VideoTexture at a time on this iGPU
       castingTitle = id;
+      if (dest === 'wall') {
+        // route the same stream to the mosaic wall instead of the holo TV
+        if (props.tv.isCasting()) props.tv.stopCast();
+        if (!mosaic) return '⛔ 馬賽克牆尚未載入';
+        mosaic.castExternal(castVideo, `YT://${id}`);
+        interact.flash('📡 投影到馬賽克牆 — 28×5 LED 面板');
+        return '📡 已投影到馬賽克牆 — 回廚房看';
+      }
+      // default: holo TV in the living room
+      if (mosaic?.isTV()) mosaic.exitTV();
+      props.tv.cast(castVideo);
       interact.flash('📽 投影展開 — 回客廳看吧,影片浮在半空');
       return '📽 已投影到客廳 — ESC 出去邊走邊看';
     } catch (err) {
@@ -228,6 +300,29 @@ async function boot() {
     cycleNeon: () => props.neonSign.cycle(),
     toggleCurtain: () => props.curtain.toggle(),
     cycleHolo: () => props.holo.cycle(),
+    toggleLantern: () => lantern?.toggle() ?? false,
+    cycleDeskLantern: () => deskLantern?.cycle() ?? '(未載入)',
+    cycleMosaic: () => mosaic?.reveal() ?? '(未載入)',
+    cycleHoloTint: () => props.tv.cycleHoloTint(),
+    toggleCounterPendants: () => props.counterPendants.toggle(),
+    toggleDND: () => toggleDND(),
+    cycleProjector: () => room.starProjector.cycle(),
+    toggleFridge: () => room.fridge.toggle(),
+    mosaicTV: (arg?: string) => {
+      if (!mosaic) return '(未載入)';
+      if (arg === 'off' || arg === 'stop') {
+        return mosaic.exitTV() ? '電視模式關閉,回到藝廊輪播' : '不在電視模式';
+      }
+      // entering TV: one VideoTexture at a time on this iGPU — pause the
+      // city ads + holo TV cast so we don't fight for decoding bandwidth
+      const wasArtMode = !mosaic.isTV();
+      const label = mosaic.cycleTV();
+      if (wasArtMode) {
+        city.setAdsPaused(true);
+        if (props.tv.isCasting()) stopCast();
+      }
+      return label;
+    },
     cycleLights,
     triggerAd: () => city.triggerAd(),
     irisSay: () => irisSay(),
@@ -318,8 +413,26 @@ async function boot() {
     setWeather(weatherLevel === 'off' ? 'light' : weatherLevel === 'light' ? 'heavy' : 'off');
     interact.flash(`🌧 雨勢:${weatherLevel}`);
   }, 3.0);
+  // ------- drink / drunk state -------
+  // Bar drink raises drunkLevel; the update loop applies a head-roll sway +
+  // pink overlay tint that decays over time. Sleeping on the bed clears it.
+  let drunkLevel = 0;
+  const drunkOverlay = document.createElement('div');
+  drunkOverlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(255,140,200,0);'
+    + 'pointer-events:none;mix-blend-mode:soft-light;transition:background .6s;z-index:38;';
+  document.body.appendChild(drunkOverlay);
+  const drunkVignette = document.createElement('div');
+  drunkVignette.style.cssText =
+    'position:fixed;inset:0;pointer-events:none;'
+    + 'background:radial-gradient(ellipse at center,'
+    + 'rgba(0,0,0,0) 35%, rgba(0,0,0,0.65) 100%);'
+    + 'opacity:0;transition:opacity .6s;z-index:39;';
+  document.body.appendChild(drunkVignette);
+
   interact.add(barProxy, '調一杯酒', () => {
     props.bar.pulse();
+    drunkLevel = Math.min(1.8, drunkLevel + 0.55);
     interact.flash('🍸 NEON COLA + 合成龍舌蘭…乾杯!');
   }, 2.6);
   interact.add(sofaProxy, '坐下 (電動沙發)', () => {
@@ -332,12 +445,14 @@ async function boot() {
       yaw: controls.getYaw(),
       pitch: controls.getPitch(),
     };
-    controls.enabled = false;
+    // controls stay ENABLED so mouse-look works while seated; the update
+    // loop locks position back to seatBase every frame so WASD/gravity
+    // can't actually move the player.
+    controls.enabled = true;
     seatBase.set(0.4, 1.18, 2.0);
     ctx.camera.position.copy(seatBase);
     controls.setOrientation(Math.PI, -0.04);
-    // free-look stays on (pointer lock retained); any move key stands back up
-    interact.flash('已就座 — [R] 電動椅背 · [M] 按摩 · 移動鍵起身', 3600);
+    interact.flash('已就座 — 滑鼠左右看 · [R] 椅背 · [M] 按摩 · 移動鍵起身', 3600);
   }, 2.8);
   window.addEventListener('keydown', (e) => {
     if (!seated) return;
@@ -355,14 +470,22 @@ async function boot() {
   });
   interact.add(bedProxy, '小睡片刻', () => {
     fade.style.opacity = '1';
+    const wasDrunk = drunkLevel > 0.05;
+    drunkLevel = 0;
     window.setTimeout(() => {
       fade.style.opacity = '0';
-      interact.flash('…睡了一會兒,窗外的雨還沒停');
+      interact.flash(wasDrunk
+        ? '…睡了一會兒,酒醒了'
+        : '…睡了一會兒,窗外的雨還沒停');
     }, 1600);
   }, 2.8);
   interact.add(props.lightPanel, '燈光情境', () => {
     interact.flash(`💡 燈光:${cycleLights()}`);
   }, 2.4);
+  interact.add(props.counterPendants.hit, '吧檯柔光', () => {
+    const on = props.counterPendants.toggle();
+    interact.flash(on ? '🪔 吧檯柔光開啟 — 配馬賽克牆比較不刺眼' : '🪔 吧檯柔光熄滅 — 高對比模式');
+  }, 3.0);
   interact.add(props.holo.base, '全息投影', () => {
     interact.flash(`🔮 投影頻道:${props.holo.cycle()}`);
   }, 2.6);
@@ -514,6 +637,104 @@ async function boot() {
   interact.add(room.wardrobe.mesh, '換裝', () => {
     interact.flash(`🧥 義體外裝 → ${room.wardrobe.cycleOutfit()}(去浴室照照鏡子)`, 3200);
   }, 2.6);
+  // bedside star projector: cycle off / 賽博 / 暖光 / 古典
+  interact.add(room.starProjector.hit, '床頭星空儀', () => {
+    interact.flash(`✨ 星空儀 → ${room.starProjector.cycle()}`);
+  }, 2.0);
+  // ------- pickup system -------
+  // Aim at a pickable, E to grab — item parents to the camera and follows your
+  // head until you press F (drop where you're standing) or Q (return to its
+  // original spot). Held items dim the interact prompt while in hand.
+  type PickableState = {
+    obj: THREE.Object3D;
+    name: string;
+    origParent: THREE.Object3D;
+    origPos: THREE.Vector3;
+    origRot: THREE.Euler;
+  };
+  const pickables = new Map<THREE.Object3D, PickableState>();
+  let heldItem: PickableState | null = null;
+  const HOLD_OFFSET = new THREE.Vector3(0.22, -0.18, -0.38);
+
+  const registerPickable = (obj: THREE.Object3D, name: string): void => {
+    pickables.set(obj, {
+      obj, name,
+      origParent: obj.parent ?? ctx.scene,
+      origPos: obj.position.clone(),
+      origRot: obj.rotation.clone(),
+    });
+    interact.add(obj, `拿起 ${name}`, () => {
+      if (heldItem) return;
+      const p = pickables.get(obj);
+      if (!p) return;
+      heldItem = p;
+      p.origParent.remove(obj);
+      ctx.camera.add(obj);
+      obj.position.copy(HOLD_OFFSET);
+      obj.rotation.set(0, 0, 0);
+      interact.flash(`✋ 拿著「${name}」— [F] 放下 · [Q] 放回原位`, 3000);
+    }, 2.0);
+  };
+
+  for (const p of props.pickables) registerPickable(p.obj, p.name);
+
+  window.addEventListener('keydown', (e) => {
+    if (!heldItem) return;
+    if (e.code !== 'KeyF' && e.code !== 'KeyQ') return;
+    const item = heldItem;
+    if (e.code === 'KeyF') {
+      // drop at current world position
+      const wp = new THREE.Vector3();
+      const wq = new THREE.Quaternion();
+      item.obj.getWorldPosition(wp);
+      item.obj.getWorldQuaternion(wq);
+      ctx.camera.remove(item.obj);
+      item.origParent.add(item.obj);
+      item.obj.position.copy(wp);
+      item.origParent.worldToLocal(item.obj.position);
+      item.obj.quaternion.copy(wq);
+      // de-conjugate parent's world rotation by setting local rotation
+      const parentWorldQ = new THREE.Quaternion();
+      item.origParent.getWorldQuaternion(parentWorldQ);
+      item.obj.quaternion.premultiply(parentWorldQ.invert());
+      interact.flash(`📍 「${item.name}」放在這`);
+    } else {
+      // return to original
+      ctx.camera.remove(item.obj);
+      item.origParent.add(item.obj);
+      item.obj.position.copy(item.origPos);
+      item.obj.rotation.copy(item.origRot);
+      interact.flash(`↩ 「${item.name}」放回原位`);
+    }
+    heldItem = null;
+  });
+
+  // smart-fridge peek (E to open; auto-close after 6s)
+  interact.add(room.fridge.hit, '打開冰箱', () => {
+    const open = room.fridge.toggle();
+    interact.flash(open
+      ? '🧊 NEON COLA × 5 + 神秘紫色瓶子 + 鄰居的塑膠花'
+      : '🚪 冰箱關起來');
+  }, 2.8);
+
+  // Do-Not-Disturb: keypad LED strip by the door doubles as a DND toggle.
+  // Green = normal (doorbell + deliveries fire on schedule); red = quiet
+  // (deliveries silently queue, get released on the first ring after toggling off).
+  let dnd = false;
+  let pendingDelivery = false;
+  const keypadMat = room.entry.keypad.material as THREE.MeshStandardMaterial;
+  const setDND = (on: boolean): boolean => {
+    dnd = on;
+    keypadMat.emissive.setHex(on ? 0xff2a3d : 0x39ff88);
+    return dnd;
+  };
+  const toggleDND = (): boolean => setDND(!dnd);
+  interact.add(room.entry.keypad, '勿擾模式 (DND) 切換', () => {
+    const on = toggleDND();
+    interact.flash(on
+      ? '🔇 勿擾模式 — 門鈴會被靜音,包裹仍在門口累積'
+      : '🔔 接受訪客 — 累積的包裹會在下次門鈴釋出');
+  }, 2.4);
 
   // doorbell: a delivery arrives every few minutes
   let bellTimer = 150 + Math.random() * 180;
@@ -522,9 +743,22 @@ async function boot() {
     bellTimer -= 5;
     if (bellTimer <= 0) {
       bellTimer = 240 + Math.random() * 300;
+      if (dnd) {
+        // queue silently — when the user toggles DND off, the next tick releases it
+        pendingDelivery = true;
+        return;
+      }
       ambience.doorbell();
       room.entry.setDelivered(true);
       interact.flash('🔔 門鈴 — 有人放了東西在門口', 3600);
+      pendingDelivery = false;
+    } else if (!dnd && pendingDelivery) {
+      // DND was just turned off and there's a queued package — release it on
+      // the next tick instead of waiting for the full timer
+      pendingDelivery = false;
+      ambience.doorbell();
+      room.entry.setDelivered(true);
+      interact.flash('🔔 門鈴 — 趁你不在的時候有東西到了', 3600);
     }
   }, 5000);
 
@@ -820,7 +1054,8 @@ async function boot() {
         ctx.camera.position.x > 2.55 && ctx.camera.position.z < -3.85
         && ctx.camera.position.y < 3,
       );
-      // electric sofa: massage vibration on top of the fixed seat pose
+      // electric sofa: lock position to seatBase every frame so mouse-look
+      // still works (head turn) but WASD/gravity can't move the player.
       if (seated) {
         if (massageT > 0) {
           massageT -= dt;
@@ -830,7 +1065,37 @@ async function boot() {
             seatBase.z + Math.sin(t * 53) * 0.005,
           );
           if (massageT <= 0) ctx.camera.position.copy(seatBase);
+        } else {
+          ctx.camera.position.copy(seatBase);
         }
+        // clamp yaw to ±90° around facing-window (Math.PI) so the player can
+        // turn their head but not look behind through the sofa back
+        let yaw = controls.getYaw();
+        let delta = yaw - Math.PI;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+        const YAW_LIMIT = 1.55;   // ~90° each side
+        if (delta > YAW_LIMIT) delta = YAW_LIMIT;
+        else if (delta < -YAW_LIMIT) delta = -YAW_LIMIT;
+        let pitch = controls.getPitch();
+        const PITCH_LIMIT = 0.9;
+        if (pitch > PITCH_LIMIT) pitch = PITCH_LIMIT;
+        else if (pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT;
+        controls.setOrientation(Math.PI + delta, pitch);
+      }
+      // drunk drift — head roll sway + pink overlay tint + edge vignette
+      if (drunkLevel > 0.005) {
+        drunkLevel = Math.max(0, drunkLevel - dt * 0.045);   // ~22s per +1 drink
+        const k = Math.min(1, drunkLevel);
+        const roll = Math.sin(t * 1.6) * k * 0.08 + Math.sin(t * 0.9 + 1.4) * k * 0.04;
+        ctx.camera.rotation.z = roll;       // FPControls.update sets z=0; apply after
+        const tintA = (k * 0.22).toFixed(3);
+        drunkOverlay.style.background = `rgba(255,140,200,${tintA})`;
+        drunkVignette.style.opacity = (k * 0.55).toFixed(3);
+      } else if (ctx.camera.rotation.z !== 0) {
+        ctx.camera.rotation.z = 0;
+        drunkOverlay.style.background = 'rgba(255,140,200,0)';
+        drunkVignette.style.opacity = '0';
       }
     }
     // party mood: slow hue sweep on the accent fixtures
@@ -847,6 +1112,9 @@ async function boot() {
     city.update(t, dt);
     rain.update(dt);
     props.update(t, dt);
+    if (lantern) lantern.update(dt);
+    if (deskLantern) deskLantern.update(dt);
+    if (mosaic) mosaic.update(t, dt);
     // closed curtain muffles the rain (about half as loud through the fabric)
     ambience.update(ctx.camera.position, ROOM_BOUNDS.d / 2,
       rainValue * (1 - 0.55 * props.curtain.amount()));

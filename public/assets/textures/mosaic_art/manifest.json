@@ -1,0 +1,86 @@
+[
+  {
+    "id": "met-hokusai",
+    "label": "Ten Verses on Oxherding — Met",
+    "src": "assets/textures/mosaic_art/met-hokusai.png",
+    "source": "met"
+  },
+  {
+    "id": "met-hiroshige",
+    "label": "Dwarf (one of a pair) — Villeroy",
+    "src": "assets/textures/mosaic_art/met-hiroshige.png",
+    "source": "met"
+  },
+  {
+    "id": "met-vangogh",
+    "label": "The Outer Harbor of Brest — Henri Joseph van Blarenberghe",
+    "src": "assets/textures/mosaic_art/met-vangogh.png",
+    "source": "met"
+  },
+  {
+    "id": "met-monet",
+    "label": "The Forest in Winter at Sunset — Théodore Rousseau",
+    "src": "assets/textures/mosaic_art/met-monet.png",
+    "source": "met"
+  },
+  {
+    "id": "met-klimt",
+    "label": "The Jabach Family — Charles Le Brun",
+    "src": "assets/textures/mosaic_art/met-klimt.png",
+    "source": "met"
+  },
+  {
+    "id": "met-cezanne",
+    "label": "The Nativity with Donors and Saints Jerome and Leonard — Gerard David",
+    "src": "assets/textures/mosaic_art/met-cezanne.png",
+    "source": "met"
+  },
+  {
+    "id": "cat-warhol",
+    "label": "夜貓 ×4 — Warhol 變奏",
+    "src": "assets/textures/mosaic_art/cat-warhol.png",
+    "source": "procedural"
+  },
+  {
+    "id": "cat-neon",
+    "label": "夜貓 NEON — 霓虹剪影",
+    "src": "assets/textures/mosaic_art/cat-neon.png",
+    "source": "procedural"
+  },
+  {
+    "id": "cat-pixel",
+    "label": "夜貓 8-bit — 像素街機",
+    "src": "assets/textures/mosaic_art/cat-pixel.png",
+    "source": "procedural"
+  },
+  {
+    "id": "cat-egyptian",
+    "label": "夜貓 Bastet — 古埃及壁畫",
+    "src": "assets/textures/mosaic_art/cat-egyptian.png",
+    "source": "procedural"
+  },
+  {
+    "id": "abs-mondrian",
+    "label": "Mondrian 變奏 — 原色矩形",
+    "src": "assets/textures/mosaic_art/abs-mondrian.png",
+    "source": "procedural"
+  },
+  {
+    "id": "abs-memphis",
+    "label": "Memphis 派對 — 80s 拼貼",
+    "src": "assets/textures/mosaic_art/abs-memphis.png",
+    "source": "procedural"
+  },
+  {
+    "id": "abs-bauhaus",
+    "label": "Bauhaus 基本形 — 紅黃藍",
+    "src": "assets/textures/mosaic_art/abs-bauhaus.png",
+    "source": "procedural"
+  },
+  {
+    "id": "abs-vasarely",
+    "label": "Vasarely Op-Art — 視覺漩渦",
+    "src": "assets/textures/mosaic_art/abs-vasarely.png",
+    "source": "procedural"
+  }
+]
