@@ -9,10 +9,20 @@ export interface GameAPI {
   cycleNeon: () => string;
   toggleCurtain: () => boolean;
   cycleHolo: () => string;
+  toggleLantern: () => boolean;
+  cycleDeskLantern: () => string;
+  cycleMosaic: () => string;
+  cycleHoloTint: () => string;
+  /** TV mode on the mosaic wall. Pass undefined to cycle videos; 'off' to exit. */
+  mosaicTV: (arg?: string) => string;
+  toggleCounterPendants: () => boolean;
+  toggleDND: () => boolean;
+  cycleProjector: () => string;
+  toggleFridge: () => boolean;
   cycleLights: () => string;
   triggerAd: () => string;
   irisSay: () => string;
-  castToTV: (id: string) => Promise<string>;
+  castToTV: (id: string, dest?: 'tv' | 'wall') => Promise<string>;
   getStats: () => { fps: number; preset: string; renderer: string; pos: string };
   setPresetOverride: (p: 'low' | 'medium' | 'high' | 'ultra') => void;
   currentPreset: () => string;
@@ -457,19 +467,41 @@ export class CyberOS {
     switch (head) {
       case 'help':
         return [
-          'help            顯示本說明',
-          'weather <off|light|heavy>  控制窗外雨勢',
-          'neon            切換霓虹燈色',
-          'curtain         電動窗簾升/降',
-          'holo            全息投影切換頻道',
-          'light           燈光情境 (標準/閱讀/影院/派對/全暗)',
-          'ad              立即插播一支樓宇間全息廣告',
-          'cast            把 NeuroSound 當前影片投影到客廳',
-          'bgm <play|next> 控制 NeuroSound 音樂',
-          'stats           顯示系統狀態',
-          'whoami / ls / cat manifesto.txt',
-          'hack            ???',
-          'clear           清除畫面',
+          '── 環境 / 氛圍 ──',
+          'weather <off|light|heavy>   控制窗外雨勢',
+          'curtain                     電動窗簾升/降',
+          'neon                        切換窗邊霓虹燈色',
+          'light                       燈光情境 (標準/閱讀/影院/派對/全暗)',
+          'dnd / quiet                 勿擾模式 — 門鈴靜音(包裹仍累積)',
+          '',
+          '── 燈具 ──',
+          'lantern                     吧檯馬賽克燈籠 開/關',
+          'desklamp                    桌上土耳其檯燈 三段:熄/微亮/明亮',
+          'wash / pendant              吧檯柔光吊燈 開/關',
+          '',
+          '── 視覺裝置 ──',
+          'mosaic                      翻牌馬賽克牆 換一幅 (14 幅藝術品輪播)',
+          'holo                        茶几全息小投影 切換 (球/迷你城/寶石)',
+          'ad                          天際線插播一支全息廣告',
+          'iris                        虹 (IRIS) 全息助理說一句',
+          '',
+          '── 影音投影 ──',
+          'tv [off]                    馬賽克牆當電視/退出 (3 個本地頻道)',
+          'cast [wall|tv] [<YT_ID>]    串流投影 — 預設客廳全息電視,wall=馬賽克牆',
+          'holotint / tint             全息電視色調循環 (無色/淡藍/中藍/深藍/全藍)',
+          'bgm <play|next>             NeuroSound 音樂控制',
+          '',
+          '── 藝廊 / 圖書 ──',
+          'art / gallery               牆上名畫提示 (走到畫框前按 E 換畫)',
+          'lib / books                 書架提示',
+          '',
+          '── 系統 / 彩蛋 ──',
+          'stats                       顯示 FPS / 渲染器 / 座標',
+          'devlog                      開啟 DEV.LOG 建造日誌',
+          'viola                       開啟 VIOLA.ARCHIVE 家庭錄音',
+          'whoami / ls / cat <檔名>    終端機假裝有檔案',
+          'hack                        ???',
+          'clear                       清螢幕',
         ].join('\n');
       case 'weather':
         if (arg === 'off' || arg === 'light' || arg === 'heavy') {
@@ -483,15 +515,54 @@ export class CyberOS {
         return this.api.toggleCurtain() ? '> 窗簾:下降中…' : '> 窗簾:上升中…';
       case 'holo':
         return `> 全息投影 → ${this.api.cycleHolo()}`;
+      case 'lantern':
+        return this.api.toggleLantern()
+          ? '> 馬賽克燈籠 → 點亮 (彩繪玻璃)'
+          : '> 馬賽克燈籠 → 熄滅';
+      case 'desklamp': case 'desklight':
+        return `> 桌上土耳其燈 → ${this.api.cycleDeskLantern()}`;
+      case 'mosaic':
+        return `> 翻牌馬賽克牆 → ${this.api.cycleMosaic()}`;
+      case 'holotint': case 'holocolor': case 'tint':
+        return `> 全息投影色調 → ${this.api.cycleHoloTint()}`;
+      case 'tv':
+        return `> 馬賽克電視 → ${this.api.mosaicTV(arg)}`;
+      case 'wash': case 'pendant': case 'pendants':
+        return this.api.toggleCounterPendants()
+          ? '> 吧檯柔光開啟'
+          : '> 吧檯柔光熄滅';
+      case 'dnd': case 'quiet':
+        return this.api.toggleDND()
+          ? '> 勿擾模式 — 門鈴靜音中'
+          : '> 接受訪客';
+      case 'projector': case 'starprojector': case 'stars':
+        return `> 床頭星空儀 → ${this.api.cycleProjector()}`;
+      case 'fridge':
+        return this.api.toggleFridge() ? '> 冰箱打開了' : '> 冰箱關閉';
       case 'light': case 'lights':
         return `> 燈光情境 → ${this.api.cycleLights()}`;
       case 'lib': case 'books':
         return '> 藏書已實體化 — 到書櫃前看準書脊按 E,把書取下來讀';
       case 'cast': {
-        const vid = this.ytPlayer?.getVideoData?.()?.video_id;
-        if (!vid) return '> 先在 NeuroSound 選一首,再 cast';
-        void this.api.castToTV(vid).then(() => this.ytPlayer?.pauseVideo?.());
-        return '> 解析串流並投影到客廳…';
+        // forms accepted:
+        //   cast                  → current NeuroSound video → holo TV
+        //   cast wall             → current NeuroSound video → mosaic wall
+        //   cast wall <ytid>      → explicit YT id → mosaic wall (dev-friendly)
+        //   cast tv <ytid>        → explicit YT id → holo TV
+        const tokens = arg.split(/\s+/).filter(Boolean);
+        let dest: 'tv' | 'wall' = 'tv';
+        let explicitId: string | undefined;
+        for (const t of tokens) {
+          if (t === 'wall' || t === 'mosaic') dest = 'wall';
+          else if (t === 'tv' || t === 'holo') dest = 'tv';
+          else if (t.length >= 8) explicitId = t;
+        }
+        const vid = explicitId ?? this.ytPlayer?.getVideoData?.()?.video_id;
+        if (!vid) return '> 先在 NeuroSound 選一首,或直接 cast wall <YT_ID>';
+        void this.api.castToTV(vid, dest).then(() => this.ytPlayer?.pauseVideo?.());
+        return dest === 'wall'
+          ? '> 解析串流並投影到馬賽克牆…'
+          : '> 解析串流並投影到客廳…';
       }
       case 'ad':
         return `> 全息廣告插播 → ${this.api.triggerAd()}`;

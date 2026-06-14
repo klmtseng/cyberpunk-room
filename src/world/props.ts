@@ -14,9 +14,12 @@ export interface PropsRig {
     cast: (video: HTMLVideoElement) => void;
     stopCast: () => void;
     isCasting: () => boolean;
+    cycleHoloTint: () => string;
   };
   neonSign: { mesh: THREE.Mesh; light: THREE.PointLight; cycle: () => string };
   bar: { pulse: () => void; glass: THREE.Object3D };
+  pickables: Array<{ obj: THREE.Object3D; name: string }>;
+  counterPendants: { hit: THREE.Object3D; toggle: () => boolean; isOn: () => boolean };
   recordPlayer: { mesh: THREE.Mesh; setSpin: (on: boolean) => void };
   curtain: { panel: THREE.Mesh; toggle: () => boolean; amount: () => number };
   holo: { base: THREE.Mesh; cycle: () => string };
@@ -99,15 +102,18 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   );
   tvLed.position.set(-5.8, 2.2, 2.2);
   group.add(tvLed);
-  // the floating screen, conjured mid-room facing the sofa
+  // floating holo screen — 大尺寸 + 更透「投影感」。Sofa is at z=2 facing +z,
+  // screen at z=5.1. Living area is double-height so vertical clearance is fine.
+  const SCREEN_W = 4.8, SCREEN_H = 2.7;          // 16:9, ~50% bigger than the original
+  const SCREEN_Y = 2.45;                          // raised a touch so the bottom edge clears the coffee table
   const holoScreen = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.2, 1.8),
+    new THREE.PlaneGeometry(SCREEN_W, SCREEN_H),
     new THREE.MeshBasicMaterial({
       map: tvTex, transparent: true, opacity: 0.95,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
     }),
   );
-  holoScreen.position.set(0.4, 2.2, 5.1);
+  holoScreen.position.set(0.4, SCREEN_Y, 5.1);
   holoScreen.rotation.y = Math.PI;
   holoScreen.scale.y = 0.001;
   holoScreen.visible = false;
@@ -115,23 +121,28 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   group.add(holoScreen);
   // TV-set dressing: slim bezel + glowing under-bar, scale with the screen
   const tvSet = new THREE.Group();
-  const bezelMat = new THREE.MeshBasicMaterial({ color: 0x05070c });
+  const bezelMat = new THREE.MeshBasicMaterial({
+    color: 0x05070c, transparent: true, opacity: 0.55,    // tinted, see-through frame
+  });
+  const BEZ_X = SCREEN_W / 2 + 0.02, BEZ_Y = SCREEN_H / 2 + 0.02;
   for (const [bw, bh, bx, by] of [
-    [3.3, 0.05, 0, 0.925], [3.3, 0.05, 0, -0.925],
-    [0.05, 1.9, -1.625, 0], [0.05, 1.9, 1.625, 0],
+    [SCREEN_W + 0.1, 0.05, 0, BEZ_Y],
+    [SCREEN_W + 0.1, 0.05, 0, -BEZ_Y],
+    [0.05, SCREEN_H + 0.1, -BEZ_X, 0],
+    [0.05, SCREEN_H + 0.1, BEZ_X, 0],
   ] as const) {
     const bar = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), bezelMat);
     bar.position.set(bx, by, 0.001);
     tvSet.add(bar);
   }
   const glowBar = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.1, 0.03),
+    new THREE.PlaneGeometry(SCREEN_W * 0.35, 0.03),
     new THREE.MeshBasicMaterial({
       color: 0x5af2ff, transparent: true, opacity: 0.9,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }),
   );
-  glowBar.position.set(0, -0.99, 0.001);
+  glowBar.position.set(0, -BEZ_Y - 0.04, 0.001);
   tvSet.add(glowBar);
   tvSet.position.copy(holoScreen.position);
   tvSet.rotation.copy(holoScreen.rotation);
@@ -141,18 +152,42 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   let castTex: THREE.VideoTexture | null = null;
   let castingNow = false;
   const screenMat = holoScreen.material as THREE.MeshBasicMaterial;
+  // 全息色調預設 — 按 'holotint' 終端機指令循環切換
+  const TINT_PRESETS: Array<{ hex: number; label: string }> = [
+    { hex: 0xffffff, label: '無色' },
+    { hex: 0xd8e8ff, label: '淡藍' },
+    { hex: 0xc8e0ff, label: '中藍' },
+    { hex: 0xa8c8ff, label: '深藍' },
+    { hex: 0x88b8f8, label: '全藍' },
+  ];
+  let tintIdx = 2;       // medium-blue default — set in cast() below
+  const cycleHoloTint = (): string => {
+    tintIdx = (tintIdx + 1) % TINT_PRESETS.length;
+    const p = TINT_PRESETS[tintIdx];
+    if (castingNow) {
+      screenMat.color.setHex(p.hex);
+      screenMat.needsUpdate = true;
+    }
+    return `${p.label} (#${p.hex.toString(16).padStart(6, '0')})`;
+  };
   const cast = (video: HTMLVideoElement) => {
     castTex?.dispose();
     castTex = new THREE.VideoTexture(video);
     castTex.colorSpace = THREE.SRGBColorSpace;
     screenMat.map = castTex;
-    screenMat.blending = THREE.NormalBlending;   // solid panel: a real TV image
-    screenMat.opacity = 1;
+    // "投影感" — translucent panel + cool-blue tint (sci-fi hologram). The
+    // tint colour is whatever the user last picked via `holotint`, defaulting
+    // to medium blue. MeshBasicMaterial.color is multiplied with the video
+    // texture, so 0xc8e0ff gives a cyan-blue wash without burying skin tones.
+    screenMat.color.setHex(TINT_PRESETS[tintIdx].hex);
+    screenMat.blending = THREE.NormalBlending;
+    screenMat.opacity = 0.78;
     screenMat.needsUpdate = true;
     castingNow = true;
     tvChannel = 0;                                // channels yield to the cast
     holoScreen.visible = true;
-    tvSet.visible = true;
+    // No bezel — user prefers a frameless floating projection
+    tvSet.visible = false;
     tvScaleTarget = 1;
     (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(0x5af2ff);
   };
@@ -162,6 +197,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     castTex?.dispose();
     castTex = null;
     screenMat.map = tvTex;
+    screenMat.color.setHex(0xffffff);             // clear the cast-mode blue tint
     screenMat.blending = THREE.AdditiveBlending;  // back to hologram channels
     screenMat.needsUpdate = true;
     tvSet.visible = false;
@@ -205,12 +241,15 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     holoScreen.scale.y += (target - holoScreen.scale.y) * Math.min(dt * 7, 1);
     if (holoScreen.scale.y < 0.01 && target === 0) holoScreen.visible = false;
     tvSet.scale.y = Math.max(holoScreen.scale.y, 0.001);
-    tvSet.visible = castingNow && holoScreen.scale.y > 0.05;
+    tvSet.visible = false;   // frameless projection — bezel intentionally hidden
     if (holoScreen.visible && !castingNow) {
       (holoScreen.material as THREE.MeshBasicMaterial).opacity =
         0.85 + 0.12 * Math.sin(t * 19) + 0.03 * Math.sin(t * 5.1);
     } else if (castingNow) {
-      (holoScreen.material as THREE.MeshBasicMaterial).opacity = 1;
+      // gentle projection flicker on top of the 0.78 baseline so the cast
+      // doesn't read as a flat opaque panel
+      (holoScreen.material as THREE.MeshBasicMaterial).opacity =
+        0.78 + 0.05 * Math.sin(t * 12.3) + 0.02 * Math.sin(t * 3.7);
     }
   });
   const cycleChannel = () => {
@@ -271,7 +310,9 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   };
 
   // ---------- bar dressing: bottles + glass on the island ----------
+  const pickables: Array<{ obj: THREE.Object3D; name: string }> = [];
   const bottleColors = [0xff2bdb, 0x5af2ff, 0xffe14d, 0x39ff88];
+  const bottleNames = ['NEON COLA', 'CHROME SAKE', 'GOLD-44 啤酒', 'ACID GREEN'];
   bottleColors.forEach((bc, i) => {
     const bottle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.04, 0.05, 0.28, 10),
@@ -281,7 +322,9 @@ export function buildProps(ctx: EngineCtx): PropsRig {
       }),
     );
     bottle.position.set(-2.75 + i * 0.18, 1.09, -4.75);
+    bottle.name = `Bottle_${bottleNames[i]}`;
     group.add(bottle);
+    if (i === 0) pickables.push({ obj: bottle, name: bottleNames[i] });
   });
   const glass = new THREE.Mesh(
     new THREE.CylinderGeometry(0.045, 0.035, 0.11, 10),
@@ -305,13 +348,100 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   });
   const pulse = () => { barPulse = 1.2; glass.visible = !glass.visible; };
 
+  // ---------- counter pendants: 3 soft wash lights over the kitchen counter ----------
+  // Mosaic wall behind the counter (z=-6.86) can get high-contrast when art is up
+  // — these dim warm pendants wash the workspace so the eye has a midtone to rest
+  // on. Independent of the lighting MOODS so the user can keep mood=影院 but flip
+  // these on while watching the wall.
+  const pendantGroup = new THREE.Group();
+  pendantGroup.name = 'CounterPendants';
+  const pendantShadeMat = new THREE.MeshStandardMaterial({
+    color: 0x12141c, metalness: 0.4, roughness: 0.55,
+  });
+  const pendantBulbMat = new THREE.MeshStandardMaterial({
+    color: 0xfff0d0, emissive: 0xffc890, emissiveIntensity: 1.2, roughness: 0.6,
+  });
+  const pendantLights: THREE.PointLight[] = [];
+  // 3 positions evenly spaced along the counter, in front of the cabinets so the
+  // light spills onto the counter and a touch onto the mosaic wall (warming it up)
+  // kitchen ceiling = mezz underside. MEZZ_Y=3 in room.ts, slab thickness 0.18.
+  const CEILING = 2.82;
+  const PENDANT_Z = -6.05;
+  const PENDANT_Y_TOP = CEILING;
+  const PENDANT_Y_SHADE = 2.05;   // bottom of cord, top of shade
+  const PENDANT_BULB_Y = 1.92;    // where the warm point light sits
+  for (const px of [-3.4, -2.0, -0.6]) {
+    // cord
+    const cord = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.008, PENDANT_Y_TOP - PENDANT_Y_SHADE, 6),
+      matDark,
+    );
+    cord.position.set(px, (PENDANT_Y_TOP + PENDANT_Y_SHADE) / 2, PENDANT_Z);
+    pendantGroup.add(cord);
+    // drum shade (cylinder, top cap visible)
+    const shade = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.085, 0.085, 0.16, 18, 1, true),
+      pendantShadeMat,
+    );
+    shade.position.set(px, PENDANT_Y_SHADE - 0.08, PENDANT_Z);
+    pendantGroup.add(shade);
+    // top cap
+    const cap = new THREE.Mesh(
+      new THREE.CircleGeometry(0.085, 18),
+      pendantShadeMat,
+    );
+    cap.rotation.x = -Math.PI / 2;
+    cap.position.set(px, PENDANT_Y_SHADE, PENDANT_Z);
+    pendantGroup.add(cap);
+    // bulb disk (visible from below — gives the "glowing underside" cue)
+    const bulb = new THREE.Mesh(
+      new THREE.CircleGeometry(0.07, 18),
+      pendantBulbMat,
+    );
+    bulb.rotation.x = Math.PI / 2;
+    bulb.position.set(px, PENDANT_Y_SHADE - 0.158, PENDANT_Z);
+    pendantGroup.add(bulb);
+    // light
+    const l = new THREE.PointLight(0xffc890, 16, 4.5, 1.8);
+    l.position.set(px, PENDANT_BULB_Y, PENDANT_Z);
+    pendantGroup.add(l);
+    pendantLights.push(l);
+  }
+  group.add(pendantGroup);
+  // invisible hit proxy: low cylindrical zone centered on the middle pendant —
+  // catches a "look up at the lamp" raycast even when the player is at counter height
+  const pendantHit = new THREE.Mesh(
+    new THREE.BoxGeometry(2.5, 0.6, 0.5),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  pendantHit.position.set(-2.0, 1.95, PENDANT_Z);
+  pendantHit.name = 'CounterPendantsHit';
+  group.add(pendantHit);
+
+  let pendantOn = true;   // default on — softens the bright mosaic out of the gate
+  const PENDANT_BASE_CD = 16;
+  const PENDANT_BULB_EMIS = 1.2;
+  const setPendantState = (on: boolean): void => {
+    pendantOn = on;
+    for (const l of pendantLights) l.intensity = on ? PENDANT_BASE_CD : 0;
+    pendantBulbMat.emissiveIntensity = on ? PENDANT_BULB_EMIS : 0.05;
+    pendantBulbMat.needsUpdate = true;
+  };
+  setPendantState(true);   // ensure consistent start state
+  const togglePendants = (): boolean => { setPendantState(!pendantOn); return pendantOn; };
+
   // ---------- desk clutter ----------
+  // Desk top is at y=0.80 (long edge along z, hugging right wall). Items must
+  // sit ON 0.80 — earlier coords (4.x range) were leftover from the old layout
+  // and floated in mid-air after the desk was rotated 90°.
   const mug = new THREE.Mesh(
     new THREE.CylinderGeometry(0.045, 0.045, 0.1, 10),
     new THREE.MeshLambertMaterial({ color: 0xc2306a }),
   );
-  mug.position.set(4.4, 0.85, 2.7);
+  mug.position.set(5.55, 0.85, 2.95);   // on desk, front-left of keyboard
+  mug.name = 'CoffeeMug';
   group.add(mug);
+  pickables.push({ obj: mug, name: '咖啡杯' });
   for (let i = 0; i < 3; i++) {
     const paper = new THREE.Mesh(
       new THREE.PlaneGeometry(0.21, 0.29),
@@ -319,7 +449,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     );
     paper.rotation.x = -Math.PI / 2;
     paper.rotation.z = (Math.random() - 0.5) * 0.8;
-    paper.position.set(4.5 + Math.random() * 0.3, 0.802 + i * 0.002, 3.0 + Math.random() * 0.2);
+    paper.position.set(5.5 + Math.random() * 0.2, 0.803 + i * 0.002, 3.55 + Math.random() * 0.2);
     group.add(paper);
   }
 
@@ -728,16 +858,30 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   );
   acLed.position.set(5.6, 3.44, -2.3);
   group.add(acLed);
-  // lived-in clutter: delivery boxes by the door, noodle cup on the coffee table
-  box(0.4, 0.3, 0.36, new THREE.MeshLambertMaterial({ color: 0x7a6248 }), -5.2, 0.15, 2.7);
-  const box2 = box(0.3, 0.24, 0.3, new THREE.MeshLambertMaterial({ color: 0x6a5a44 }), -5.16, 0.42, 2.66);
-  box2.rotation.y = 0.4;
+  // lived-in clutter: noodle cup on the coffee table.
+  // (Removed the two cardboard delivery boxes between stairs and door —
+  // they were decorative-only, no interaction, and blocked the walkway.)
   const noodle = new THREE.Mesh(
     new THREE.CylinderGeometry(0.045, 0.035, 0.09, 10),
     new THREE.MeshLambertMaterial({ color: 0xc8444a }),
   );
   noodle.position.set(0.65, 0.39, 3.45);
+  noodle.name = 'NoodleCup';
   group.add(noodle);
+  pickables.push({ obj: noodle, name: '泡麵杯' });
+
+  // small "data shard" on the bedroom dresser — purple glowing chip, pickable
+  const dataShard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.012, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0x05060a, emissive: 0xb44dff, emissiveIntensity: 1.4, roughness: 0.4,
+    }),
+  );
+  dataShard.position.set(3.4, 3.66, -6.55);   // mezz dresser top y=3+0.65+0.012
+  dataShard.rotation.y = 0.4;
+  dataShard.name = 'DataShard';
+  group.add(dataShard);
+  pickables.push({ obj: dataShard, name: '紫色資料碎片' });
 
   // ---------- living wall art: warm hearth + ukiyo wave + master paintings ----------
   // digital fireplace inset below the TV — the warmest pixel in the apartment
@@ -940,9 +1084,12 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     tv: {
       mesh: tv, screen: holoScreen, cycleChannel,
       cast, stopCast, isCasting: () => castingNow,
+      cycleHoloTint,
     },
     neonSign: { mesh: neonSign, light: signLight, cycle: cycleNeon },
     bar: { pulse, glass },
+    pickables,
+    counterPendants: { hit: pendantHit, toggle: togglePendants, isOn: () => pendantOn },
     recordPlayer: {
       mesh: deck,
       setSpin: (on: boolean) => { vinylSpinning = on; },
