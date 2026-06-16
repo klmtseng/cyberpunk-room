@@ -418,8 +418,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   // (The 3-box procedural L-sofa was replaced by two GLB sofas loaded from
   // main.ts: a custom curved cyberpunk L-sectional + a Polyhaven Victorian
   // classic for A/B comparison. See src/world/lounge_sofas.ts.)
-  box(0.5, 0.16, 0.5, new THREE.MeshLambertMaterial({ color: 0xc2306a }), -0.5, 0.5, 1.9); // accent cushion
-  box(0.5, 0.16, 0.5, matFurn, 0.9, 0.5, 1.95);
+  // The two leftover procedural "accent cushion" boxes were removed
+  // 2026-06-16 — they were stranded on top of the GLB sofas after the
+  // swap and read as small crates rather than cushions.
   strip(2.9, 0.03, 0.03, 0x5af2ff, 0.4, 0.06, 2.55, 1.4);          // sofa underglow
   // coffee table + rug
   solid(1.3, 0.34, 0.7, matDark, 0.2, 0.17, 3.6);
