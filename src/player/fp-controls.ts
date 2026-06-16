@@ -35,6 +35,15 @@ export class FPControls {
   private listeners: Array<() => void> = [];
   /** false while the OS overlay owns input (movement + jump suspended) */
   enabled = true;
+  // Touch / XR additive input — keyboard path stays untouched. Each frame
+  // `update(dt)` reads these alongside `keys`; touch-controls writes them
+  // from joystick state.
+  private moveForward = 0;   // -1..1 (joystick Y, push up = +1)
+  private moveStrafe = 0;    // -1..1 (joystick X)
+  // When the WebXR session is active, three.js owns the camera rotation
+  // (head pose). We must stop fighting it in update(). Set by main.ts via
+  // a session-start listener.
+  xrPresenting = false;
 
   constructor(camera: THREE.PerspectiveCamera, dom: HTMLElement, cfg: Partial<FPSConfig> = {}) {
     this.camera = camera;
@@ -58,7 +67,32 @@ export class FPControls {
   setOrientation(yaw: number, pitch: number = 0) {
     this.yaw = yaw;
     this.pitch = Math.max(-Math.PI/2 + 0.02, Math.min(Math.PI/2 - 0.02, pitch));
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    if (!this.xrPresenting) this.camera.rotation.set(this.pitch, this.yaw, 0);
+  }
+
+  /** Drive movement directly (touch joystick / XR left stick). Each component
+   *  in [-1, 1]; forward=+1 walks the way the camera is facing. Coexists with
+   *  keyboard — both are summed in update(). */
+  setMoveVector(forward: number, strafe: number): void {
+    this.moveForward = Math.max(-1, Math.min(1, forward));
+    this.moveStrafe = Math.max(-1, Math.min(1, strafe));
+  }
+
+  /** Add a yaw / pitch delta. Used by touch-look + (later) XR head-pose
+   *  exceptions. Same accumulation semantics as the existing mousemove. */
+  applyLook(dyaw: number, dpitch: number): void {
+    this.yaw -= dyaw;
+    this.pitch -= dpitch;
+    this.pitch = Math.max(-Math.PI/2 + 0.02, Math.min(Math.PI/2 - 0.02, this.pitch));
+  }
+
+  /** Fake the pointer-lock state for the input layer on platforms that have
+   *  no pointer-lock (touch, XR). Movement code reads `this.locked` to gate
+   *  WASD; we want the same gate for joystick. */
+  setLocked(on: boolean): void {
+    if (this.locked === on) return;
+    this.locked = on;
+    this.listeners.forEach((f) => f());
   }
 
   get isLocked() { return this.locked; }
@@ -101,11 +135,11 @@ export class FPControls {
   update(dt: number) {
     if (!this.enabled) return;
     const { camera, cfg } = this;
-    // rotation
-    camera.rotation.set(this.pitch, this.yaw, 0);
+    // rotation — but NEVER fight the WebXR head pose; three.js handles that
+    if (!this.xrPresenting) camera.rotation.set(this.pitch, this.yaw, 0);
 
     // movement (only when locked, otherwise still apply gravity)
-    if (this.locked) {
+    if (this.locked || this.xrPresenting) {
       const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
       const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
       const move = new THREE.Vector3();
@@ -113,6 +147,11 @@ export class FPControls {
       if (this.keys.has('KeyS')) move.sub(fwd);
       if (this.keys.has('KeyD')) move.add(right);
       if (this.keys.has('KeyA')) move.sub(right);
+      // Joystick / XR stick additive contribution. Range [-1, 1] each.
+      if (this.moveForward !== 0 || this.moveStrafe !== 0) {
+        move.addScaledVector(fwd, this.moveForward);
+        move.addScaledVector(right, this.moveStrafe);
+      }
       if (move.lengthSq() > 0) move.normalize();
       const speed = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')
         ? cfg.runSpeed : cfg.walkSpeed;
