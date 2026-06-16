@@ -39,7 +39,11 @@ export function buildScanlineMaterial(): ScanlineHandle {
   `;
 
   const fragmentShader = /* glsl */ `
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
     precision highp float;
+    #else
+    precision mediump float;
+    #endif
     varying vec2 vUv;
     uniform float uTime;
     uniform float uIntensity;
