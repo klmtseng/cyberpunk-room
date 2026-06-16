@@ -64,3 +64,52 @@ export function installLighting(ctx: EngineCtx): LightRig {
     hemiBase: hemi.intensity,
   };
 }
+
+// M6 — One-shot HDR env bake from the city. Renders the existing city into
+// a small CubeCamera at the room centre, then PMREMs it onto scene.environment
+// so every MeshStandardMaterial picks up city colour as IBL. Fail-soft: if
+// anything blows up (e.g. layout breaks before city.group is in the scene),
+// log and skip — the room boots with no env map.
+export function bakeEnvFromCity(ctx: EngineCtx): void {
+  const { renderer, scene } = ctx;
+  try {
+    // smaller cubemap = faster bake and cheaper PMREM. 256² is enough for
+    // diffuse IBL (we're not sampling sharp reflections from this map).
+    const cubeRT = new THREE.WebGLCubeRenderTarget(256, {
+      type: THREE.HalfFloatType,
+      generateMipmaps: false,
+    });
+    const cam = new THREE.CubeCamera(0.5, 800, cubeRT);
+    // bake from somewhere in the room facing out — slightly above eye level
+    // so the floor doesn't dominate; in front of the sofa for a city-heavy view
+    cam.position.set(0, 2.4, 1.5);
+    scene.add(cam);
+    cam.update(renderer, scene);
+    scene.remove(cam);
+
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileCubemapShader();
+    const envRT = pmrem.fromCubemap(cubeRT.texture);
+    scene.environment = envRT.texture;
+    // give all standard materials a modest env contribution — too high
+    // washes out the procedural emissive look that drives the cyberpunk vibe.
+    // Set a per-renderer override; individual materials with envMapIntensity
+    // already set are preserved.
+    scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as
+        THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined;
+      if (!m) return;
+      const mats = Array.isArray(m) ? m : [m];
+      for (const mat of mats) {
+        if ((mat as any).envMapIntensity !== undefined) {
+          (mat as any).envMapIntensity = 0.45;
+        }
+      }
+    });
+
+    pmrem.dispose();
+    cubeRT.dispose();
+  } catch (err) {
+    console.warn('[env-bake] failed; continuing without IBL', err);
+  }
+}

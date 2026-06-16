@@ -146,6 +146,42 @@ export class Ambience {
     window.setTimeout(() => { osc.stop(); trem.stop(); }, 3500);
   }
 
+  /** thunder rumble: short crack + long brown-noise rumble, paired with the
+   *  city.triggerLightning visual flash. ~2s total tail. */
+  thunder(): void {
+    if (!this.ctx) return;
+    const ac = this.ctx;
+    // sharp crack: short white noise burst, band-emphasised mid
+    {
+      const src = ac.createBufferSource();
+      src.buffer = makeNoiseBuffer(ac, 0.35, 'white');
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1100;
+      bp.Q.value = 0.7;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0, ac.currentTime);
+      g.gain.linearRampToValueAtTime(0.18, ac.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.35);
+      src.connect(bp).connect(g).connect(ac.destination);
+      src.start();
+    }
+    // long rumble: brown noise through a very low LP, slow fade
+    {
+      const src = ac.createBufferSource();
+      src.buffer = makeNoiseBuffer(ac, 2.2, 'brown');
+      const lp = ac.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 180;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0, ac.currentTime + 0.08);
+      g.gain.linearRampToValueAtTime(0.30, ac.currentTime + 0.25);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 2.2);
+      src.connect(lp).connect(g).connect(ac.destination);
+      src.start();
+    }
+  }
+
   /** apartment doorbell: two-tone chime */
   doorbell(): void {
     if (!this.ctx) return;

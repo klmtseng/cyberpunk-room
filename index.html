@@ -44,6 +44,32 @@
                    text-align: center; line-height: 1.6; }
       #lockhint.gone { display: none; }
       #lockhint .k { color: #ff2bdb; }
+      /* floor-plan overlay: fixed canvas + dim backdrop, toggled by FloorPlan */
+      #floorplan { position: fixed; inset: 0; pointer-events: none;
+                    background: rgba(2,4,12,0.85); z-index: 11; display: block; }
+      #floorplan.gone { display: none; }
+      #floorplan.on  { pointer-events: auto; cursor: crosshair; }
+      /* ---- Touch controls (only visible when body.touch is set) ---- */
+      #joy { position: fixed; left: 24px; bottom: 24px; width: 140px; height: 140px;
+              border-radius: 50%; background: rgba(10,16,32,0.45);
+              border: 1px solid #5af2ff55; z-index: 14; display: none;
+              touch-action: none; user-select: none; -webkit-user-select: none; }
+      #joynub { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px;
+                  border-radius: 50%; background: rgba(90,242,255,0.35);
+                  border: 1px solid #5af2ffaa; transform: translate(-50%, -50%);
+                  pointer-events: none; box-shadow: 0 0 12px #5af2ff55; }
+      #touchhint { position: fixed; right: 16px; top: 16px; z-index: 14;
+                    display: none; font-family: 'Share Tech Mono', monospace;
+                    font-size: 11px; color: #5af2ffaa;
+                    pointer-events: none; opacity: 0.75; text-align: right;
+                    line-height: 1.5; max-width: 60vw; }
+      body.touch #joy, body.touch #touchhint { display: block; }
+      /* Touch needs the crosshair to be roomier — chubby thumbs aim worse */
+      body.touch #crosshair { width: 18px; height: 18px;
+                               border-color: #5af2ffaa; }
+      /* When the WebXR session is active, hide all DOM overlays — three.js
+         handles a stereo view and the DOM is invisible to the headset */
+      body.xr #hud, body.xr #lockhint, body.xr #joy, body.xr #touchhint { display: none; }
     </style>
   </head>
   <body>
@@ -66,7 +92,10 @@
       </div>
       <div id="toast"></div>
       <div id="stats"></div>
+      <canvas id="floorplan" class="gone"></canvas>
     </div>
+    <div id="joy"><div id="joynub"></div></div>
+    <div id="touchhint">滑動視角 · 點一下互動 · 左下搖桿移動</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
