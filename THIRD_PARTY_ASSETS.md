@@ -44,6 +44,19 @@ Commons file's description page (linked via `File:<name>` on
 <https://commons.wikimedia.org>). When deploying publicly the project
 must remain CC-BY-SA compatible or replace these assets.
 
+### Wikimedia Commons video clips (fetched by `tools/streetlive/fetch_videos.py`)
+
+Short clips used as outdoor holographic projections (`AD_FILES` in
+`src/world/city.ts`). Each is downloaded full from Commons, ffmpeg-clipped
+to ~20–25 s, scaled to 480p, re-encoded h264 ~600 kbps, stored as mp4.
+Original webm sources are discarded after transcode.
+
+| Asset (in repo) | Source file on Commons | Fetched | Licence |
+|---|---|---|---|
+| `public/assets/video/cc/cc_tokyo_night.mp4` | `First nights in Tokyo.webm` | 2026-06-16 | CC-BY 3.0 |
+| `public/assets/video/cc/cc_highway_night.mp4` | `Cars driving at night.webm` | 2026-06-16 | CC-BY 3.0 |
+| `public/assets/video/cc/cc_nasa_launch.mp4` | `Igniting the Booster Space Launch System - NASA.webm` | 2026-06-16 | NASA — public domain (U.S. Government work) |
+
 ## ambientCG (CC0 1.0 Universal)
 
 ambientCG's policy: <https://ambientcg.com/list?category=&type=PhotoTexturePBR>

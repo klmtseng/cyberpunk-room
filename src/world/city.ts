@@ -1287,8 +1287,14 @@ export function buildCity(ctx: EngineCtx): CityRig {
   });
 
   // ---------- video holo-ads: real clips projected between the towers ----------
-  // black pixels vanish under additive blending → instant hologram look
+  // black pixels vanish under additive blending → instant hologram look.
+  // cc/* clips are CC-BY 3.0 / public-domain (Wikimedia Commons + NASA);
+  // hoload_* are gitignored dev-only CDPR / curated content. On Vercel
+  // only the cc/* set is present so wall projections still play in prod.
   const AD_FILES: Array<[string, string]> = [
+    ['/assets/video/cc/cc_tokyo_night.mp4', 'TOKYO NIGHT'],
+    ['/assets/video/cc/cc_highway_night.mp4', 'HIGHWAY'],
+    ['/assets/video/cc/cc_nasa_launch.mp4', 'IGNITE // NASA SLS'],
     ['/assets/video/hoload_mcl_fEI7nFU.mp4', 'Mr. Whitey™'],
     ['/assets/video/hoload_TW-T7iP5xvk.mp4', 'MEGACITY LOOP'],
     ['/assets/video/hoload_pyR8g6a10R0.mp4', 'I OWN TIME'],
