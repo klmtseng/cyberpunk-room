@@ -55,7 +55,11 @@ export function buildWindowRainMaterial(): WindowRainHandle {
   // hash + voronoi adapted from common GLSL snippets — small, no textures.
   // Cell IDs slide downward each frame so drops appear to trail.
   const fragmentShader = /* glsl */ `
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
     precision highp float;
+    #else
+    precision mediump float;
+    #endif
     varying vec2 vUv;
     varying vec3 vWorldNormal;
     varying vec3 vViewDir;
