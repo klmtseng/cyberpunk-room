@@ -143,6 +143,80 @@ async function boot() {
   step(0.82);
   const props = buildProps(ctx);
 
+  // Placement audit — shared by `window.neon.audit` (dev hook) and the
+  // CyberOS terminal `audit` command. Walks the scene graphs and flags
+  // meshes that are embedded in architectural walls, sunk below the floor,
+  // or overlapping each other by >25% of their volume.
+  type AuditIssue = { kind: string; name: string; detail: string };
+  const runPlacementAudit = (): AuditIssue[] => {
+    const issues: AuditIssue[] = [];
+    const wallSlabs = [
+      new THREE.Box3(new THREE.Vector3(-6.125, -1, -7.2), new THREE.Vector3(-5.875, 7, 7.2)),
+      new THREE.Box3(new THREE.Vector3(5.875, -1, -7.2), new THREE.Vector3(6.125, 7, 7.2)),
+      new THREE.Box3(new THREE.Vector3(-6.2, -1, -7.125), new THREE.Vector3(6.2, 7, -6.875)),
+      new THREE.Box3(new THREE.Vector3(-6.2, -1, 6.875), new THREE.Vector3(6.2, 7, 7.125)),
+    ];
+    const meshes: Array<{ m: THREE.Mesh; box: THREE.Box3; vol: number }> = [];
+    for (const grp of [room.group, props.group]) {
+      grp.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.visible) return;
+        const box = new THREE.Box3().setFromObject(mesh);
+        if (!isFinite(box.min.x)) return;
+        const s = new THREE.Vector3();
+        box.getSize(s);
+        meshes.push({ m: mesh, box, vol: s.x * s.y * s.z });
+      });
+    }
+    const label = (mesh: THREE.Mesh) =>
+      mesh.name || `${mesh.geometry.type}@${mesh.position.toArray().map((v) => v.toFixed(2))}`;
+    for (const { m, box } of meshes) {
+      const c = new THREE.Vector3();
+      box.getCenter(c);
+      for (const slab of wallSlabs) {
+        if (slab.containsPoint(c)) {
+          issues.push({ kind: 'IN-WALL', name: label(m), detail: c.toArray().map((v) => v.toFixed(2)).join(',') });
+        }
+      }
+      if (box.min.y < -0.03 && box.min.y > -3) {
+        issues.push({ kind: 'BELOW-FLOOR', name: label(m), detail: `minY=${box.min.y.toFixed(3)}` });
+      }
+    }
+    const big = meshes.filter((x) => x.vol > 0.02 && x.m.name);
+    for (let i = 0; i < big.length; i++) {
+      for (let j = i + 1; j < big.length; j++) {
+        const a = big[i], b = big[j];
+        if (a.box.intersectsBox(b.box)) {
+          const inter = a.box.clone().intersect(b.box);
+          const s = new THREE.Vector3();
+          inter.getSize(s);
+          const overlap = s.x * s.y * s.z;
+          if (overlap > 0.25 * Math.min(a.vol, b.vol)) {
+            issues.push({ kind: 'OVERLAP', name: `${label(a.m)} × ${label(b.m)}`, detail: `${(overlap * 1000).toFixed(0)}L` });
+          }
+        }
+      }
+    }
+    return issues;
+  };
+
+  /** Format the audit issues for terminal display. */
+  const formatAuditReport = (): string => {
+    const issues = runPlacementAudit();
+    if (issues.length === 0) {
+      return '> 物件配置稽核 ✓ 全部通過 (沒有埋牆 / 浮空 / 重大重疊)';
+    }
+    const head = `> 物件配置稽核 — 共發現 ${issues.length} 項異常:`;
+    const tally: Record<string, number> = {};
+    for (const i of issues) tally[i.kind] = (tally[i.kind] ?? 0) + 1;
+    const summary = Object.entries(tally).map(([k, v]) => `${k}=${v}`).join(' · ');
+    // Show up to 18 entries; truncate the rest with a footer
+    const rows = issues.slice(0, 18).map((i) => `  [${i.kind}] ${i.name}  ${i.detail}`);
+    const footer = issues.length > 18
+      ? `  …還有 ${issues.length - 18} 項。完整清單在瀏覽器 console: window.neon.audit()` : '';
+    return [head, '  ' + summary, '', ...rows, footer].filter(Boolean).join('\n');
+  };
+
   // ---- 2D floor-plan overlay (top-down map for layout discussion) ----
   // Toggled via term `plan` or the P key. Reads camera pose each frame but
   // never mutates 3D state. See src/player/plan_view.ts for the canvas.
@@ -192,8 +266,10 @@ async function boot() {
       ctx.scene.add(armchair);
     }
     if (ottoman) {
-      // shared foot rest sitting in the L pocket — visible from both sofas
-      ottoman.position.set(0.6, 0, 3.6);
+      // shared foot rest sitting in the L pocket — visible from both sofas.
+      // Was at (0.6, 0, 3.6) which sank into the coffee table; moved into the
+      // open corner just south of sofa A's right end.
+      ottoman.position.set(0.7, 0, 2.7);
       ottoman.rotation.y = Math.PI * 0.10;
       ctx.scene.add(ottoman);
     }
@@ -488,6 +564,7 @@ async function boot() {
     cycleProjector: () => room.starProjector.cycle(),
     toggleFridge: () => room.fridge.toggle(),
     togglePlanView: () => floorPlan.toggle(),
+    runAudit: () => formatAuditReport(),
     mosaicTV: (arg?: string) => {
       if (!mosaic) return '(未載入)';
       if (arg === 'off' || arg === 'stop') {
@@ -1162,59 +1239,7 @@ async function boot() {
       setWeather,
       getWeather: () => weatherLevel,
       // placement audit: flags meshes embedded in walls, floating, or overlapping
-      audit: () => {
-        const issues: Array<{ kind: string; name: string; detail: string }> = [];
-        const wallSlabs = [
-          new THREE.Box3(new THREE.Vector3(-6.125, -1, -7.2), new THREE.Vector3(-5.875, 7, 7.2)),
-          new THREE.Box3(new THREE.Vector3(5.875, -1, -7.2), new THREE.Vector3(6.125, 7, 7.2)),
-          new THREE.Box3(new THREE.Vector3(-6.2, -1, -7.125), new THREE.Vector3(6.2, 7, -6.875)),
-          new THREE.Box3(new THREE.Vector3(-6.2, -1, 6.875), new THREE.Vector3(6.2, 7, 7.125)),
-        ];
-        const meshes: Array<{ m: THREE.Mesh; box: THREE.Box3; vol: number }> = [];
-        for (const grp of [room.group, props.group]) {
-          grp.traverse((o) => {
-            const mesh = o as THREE.Mesh;
-            if (!mesh.isMesh || !mesh.visible) return;
-            const box = new THREE.Box3().setFromObject(mesh);
-            if (!isFinite(box.min.x)) return;
-            const s = new THREE.Vector3();
-            box.getSize(s);
-            meshes.push({ m: mesh, box, vol: s.x * s.y * s.z });
-          });
-        }
-        const label = (mesh: THREE.Mesh) =>
-          mesh.name || `${mesh.geometry.type}@${mesh.position.toArray().map((v) => v.toFixed(2))}`;
-        // 1) embedded in architectural walls (centre of the mesh inside a slab)
-        for (const { m, box } of meshes) {
-          const c = new THREE.Vector3();
-          box.getCenter(c);
-          for (const slab of wallSlabs) {
-            if (slab.containsPoint(c)) {
-              issues.push({ kind: 'IN-WALL', name: label(m), detail: c.toArray().map((v) => v.toFixed(2)).join(',') });
-            }
-          }
-          if (box.min.y < -0.03 && box.min.y > -3) {
-            issues.push({ kind: 'BELOW-FLOOR', name: label(m), detail: `minY=${box.min.y.toFixed(3)}` });
-          }
-        }
-        // 2) significant overlap between sizeable named meshes
-        const big = meshes.filter((x) => x.vol > 0.02 && x.m.name);
-        for (let i = 0; i < big.length; i++) {
-          for (let j = i + 1; j < big.length; j++) {
-            const a = big[i], b = big[j];
-            if (a.box.intersectsBox(b.box)) {
-              const inter = a.box.clone().intersect(b.box);
-              const s = new THREE.Vector3();
-              inter.getSize(s);
-              const overlap = s.x * s.y * s.z;
-              if (overlap > 0.25 * Math.min(a.vol, b.vol)) {
-                issues.push({ kind: 'OVERLAP', name: `${label(a.m)} × ${label(b.m)}`, detail: `${(overlap * 1000).toFixed(0)}L` });
-              }
-            }
-          }
-        }
-        return issues;
-      },
+      audit: () => runPlacementAudit(),
     };
   }
 

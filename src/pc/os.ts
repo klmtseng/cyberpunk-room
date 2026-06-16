@@ -20,6 +20,7 @@ export interface GameAPI {
   cycleProjector: () => string;
   toggleFridge: () => boolean;
   togglePlanView: () => boolean;
+  runAudit: () => string;
   cycleLights: () => string;
   triggerAd: () => string;
   irisSay: () => string;
@@ -518,6 +519,7 @@ export class CyberOS {
           '',
           '── 系統 / 彩蛋 ──',
           'plan / map                  俯視 2D 平面圖 (P 鍵也可切換)',
+          'audit / check               物件配置稽核 (埋牆 / 浮空 / 重疊)',
           'stats                       顯示 FPS / 渲染器 / 座標',
           'devlog                      開啟 DEV.LOG 建造日誌',
           'viola                       開啟 VIOLA.ARCHIVE 家庭錄音',
@@ -559,6 +561,8 @@ export class CyberOS {
           : '> 接受訪客';
       case 'projector': case 'starprojector': case 'stars':
         return `> 床頭星空儀 → ${this.api.cycleProjector()}`;
+      case 'audit': case 'check':
+        return this.api.runAudit();
       case 'plan': case 'floorplan': case 'map':
         return this.api.togglePlanView()
           ? '> 2D 平面圖開啟 — 走動時三角形跟著動,再 plan 或按 P 關閉'

@@ -444,7 +444,7 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   const pendantSpots: Array<{ x: number; z: number; y: number; cord: number }> = [
     { x: -0.9, z: 2.6, y: 3.6, cord: 0.85 },   // over sofa, left
     { x:  0.4, z: 3.5, y: 3.2, cord: 0.65 },   // over coffee table (lowest)
-    { x:  1.8, z: 3.1, y: 3.8, cord: 0.95 },   // between sofa and chaise
+    { x:  1.4, z: 3.1, y: 3.8, cord: 0.95 },   // over sofa B (centred on its x≈1.45 axis)
     { x:  2.5, z: 2.0, y: 3.5, cord: 0.75 },   // over chaise
   ];
   const pendantLights: THREE.PointLight[] = [];
@@ -631,8 +631,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
     color: 0xb05030, map: makeFabricTexture(0x6a3018),
   });
   const blanket = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.55), blanketMat);
-  // draped over the back-end of sofa B (which extends along +z)
-  blanket.position.set(1.55, 0.50, 3.30);
+  // draped over the back-end of sofa B (which extends along +z). Position
+  // moved off the sand cushion (was at the same z=3.30 → cushion poked through).
+  blanket.position.set(1.55, 0.50, 2.45);
   blanket.rotation.y = Math.PI / 2 + 0.15;     // long edge along z to match sofa B
   group.add(blanket);
 
