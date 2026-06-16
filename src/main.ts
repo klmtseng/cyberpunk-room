@@ -51,7 +51,15 @@ async function boot() {
       ?? new URL(location.href).searchParams.get('preset')?.match(/^(low|medium|high|ultra)$/);
     return m ? (m[1] as 'low' | 'medium' | 'high' | 'ultra') : null;
   })();
-  const preset = urlPreset ?? loadOverride() ?? pickPreset(hw);
+  // Touch detection used both for preset gating below AND for the touch UI
+  // wiring further down. iPhones report "apple" GPU but no M1+ → fall into
+  // `medium` by default which runs at ~8 fps. Force LOW on touch unless the
+  // user explicitly overrode via URL hash / SysMon.
+  const isTouchEarly = new URL(location.href).searchParams.get('touch') === '1'
+                    || (navigator.maxTouchPoints ?? 0) > 0
+                    || window.matchMedia('(pointer:coarse)').matches;
+  const detectedPreset = isTouchEarly ? 'low' : pickPreset(hw);
+  const preset = urlPreset ?? loadOverride() ?? detectedPreset;
   const settings = settingsFor(preset);
   console.info('[NEON LOFT] hardware', hw, '→ preset', preset);
 
@@ -87,6 +95,18 @@ async function boot() {
   const IS_TOUCH = forceTouch
                 || (navigator.maxTouchPoints ?? 0) > 0
                 || window.matchMedia('(pointer:coarse)').matches;
+  // Activation callback fired on the first touch (since canvas.click is
+  // eaten by touch-controls' preventDefault on mobile). The SAME gesture
+  // both starts the app AND begins joystick/look — no separate "tap to
+  // start" → "swipe to play" double-step. setLocked(true) triggers the
+  // onLockChange listener below which handles ambience + audio unmute +
+  // lockhint dismiss.
+  const activateForTouch = () => {
+    controls.setLocked(true);
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => { /* user said no */ });
+    }
+  };
   if (IS_TOUCH) {
     document.body.classList.add('touch');
     // Swap the desktop hint text — touch users don't have WASD / Shift / E
@@ -244,9 +264,10 @@ async function boot() {
 
   // Mount touch controls AFTER interact exists. Only adds listeners +
   // touches DOM when IS_TOUCH is true; no-op on desktop (the joystick
-  // div is `display:none` without body.touch).
+  // div is `display:none` without body.touch). The third arg is fired
+  // on the FIRST touch so we satisfy autoplay / fullscreen gestures.
   if (IS_TOUCH) {
-    new TouchControls(controls, interact);
+    new TouchControls(controls, interact, activateForTouch);
   }
 
   // holographic arcade cabinet — NEON BREAKER, actually playable

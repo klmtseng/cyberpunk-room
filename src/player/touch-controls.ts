@@ -35,10 +35,19 @@ export class TouchControls {
   private lookStartT = 0;
   private lookMovedPx = 0;
 
+  /** Called once on the very first touchstart so main.ts can satisfy the
+   *  user-gesture requirements (pointer-lock equivalent, fullscreen,
+   *  WebAudio resume). Without this, `canvas.click` is eaten by our
+   *  touchstart preventDefault and the app never "activates" on mobile. */
+  private onActivate: (() => void) | null;
+  private activated = false;
+
   constructor(
     private controls: FPControls,
     private interact: InteractSystem,
+    onActivate?: () => void,
   ) {
+    this.onActivate = onActivate ?? null;
     this.joyEl = document.getElementById('joy')!;
     this.nubEl = document.getElementById('joynub')!;
     if (!this.joyEl || !this.nubEl) {
@@ -62,6 +71,14 @@ export class TouchControls {
   }
 
   private onTouchStart = (e: TouchEvent) => {
+    // First touch ever activates the game (satisfies user-gesture rules
+    // for pointer-lock equivalent, fullscreen, WebAudio). After that the
+    // SAME touch also gets to act as joystick / look. Fixes the bug where
+    // canvas.click was eaten by our preventDefault below.
+    if (!this.activated) {
+      this.activated = true;
+      if (this.onActivate) this.onActivate();
+    }
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       // First-priority claim: joystick zone if not already held
