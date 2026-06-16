@@ -32,8 +32,11 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05060a);
-  // light haze: the vista reaches ~250m, dense fog would swallow the city
-  scene.fog = new THREE.FogExp2(0x0a0e1c, 0.0045);
+  // light haze: the vista reaches ~250m, dense fog would swallow the city.
+  // Slightly bumped (0.0045 → 0.0058) so interior depth reads as "air with
+  // particulate" per cozy-cyberpunk reference photos. Still well under the
+  // threshold where 250m city skyline drowns out.
+  scene.fog = new THREE.FogExp2(0x0c1224, 0.0058);
 
   const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 900);
   camera.position.set(0, 1.7, 0);

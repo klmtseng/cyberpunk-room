@@ -23,6 +23,13 @@ export class InteractSystem {
     });
   }
 
+  /** External trigger entry-point (touch tap, XR trigger button). Same
+   *  semantics as pressing E: fire the current targeted interactable's
+   *  onUse() if any. */
+  triggerCurrent(): void {
+    if (this.enabled && this.current) this.current.onUse();
+  }
+
   add(object: THREE.Object3D, prompt: string, onUse: () => void, maxDist = 2.6): void {
     this.targets.push({ object, prompt, maxDist, onUse });
   }

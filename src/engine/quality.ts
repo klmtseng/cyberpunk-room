@@ -7,11 +7,23 @@ export interface QualitySettings {
   enableShadows: boolean;
   enableBloom: boolean;
   enableChromaticAberration: boolean;
+  /** Reserved for a future SSR pass — only the Ultra preset sets this true.
+   *  No active consumer yet; the `postprocessing` library on which the rest
+   *  of the pipeline is built does not ship SSR, and wiring `three/addons/
+   *  postprocessing/SSRPass` would require migrating to three.js's own
+   *  EffectComposer. Picked up when we have RTX hardware to test on. */
   enableSSR: boolean;
   enablePlanarReflection: boolean;
   pixelRatio: number;
   buildingCount: number;
   vehicleCount: number;
+  // W5 photoreal additions
+  windowRainShader: boolean;     // streaks + condensation on the window glass
+  windowRainRefraction: boolean; // reserved: sample-and-displace city behind drops (ultra only)
+  enableWetCity: boolean;        // Reflector under city + bright avenue streaks in street texture
+  volumetricSources: number;     // god-ray pass source count (0 disables)
+  volumetricSamples: number;     // per-source radial samples
+  enableDOF: boolean;            // bokeh pass available; enabled by cinema mode (always-on at ultra)
 }
 
 export interface HardwareInfo {
@@ -24,28 +36,42 @@ export interface HardwareInfo {
 
 const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
   ultra: {
-    rainCount: 20000, shadowMapSize: 2048, enableShadows: true,
+    rainCount: 30000, shadowMapSize: 4096, enableShadows: true,
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: true, enablePlanarReflection: true, pixelRatio: 1.5,
     buildingCount: 900, vehicleCount: 100,
+    windowRainShader: true, windowRainRefraction: true,
+    enableWetCity: true, volumetricSources: 3, volumetricSamples: 64,
+    enableDOF: true,
   },
   high: {
     rainCount: 10000, shadowMapSize: 1024, enableShadows: true,
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 650, vehicleCount: 75,
+    windowRainShader: true, windowRainRefraction: false,
+    enableWetCity: true, volumetricSources: 1, volumetricSamples: 16,
+    enableDOF: true,
   },
   medium: {
     rainCount: 5000, shadowMapSize: 512, enableShadows: true,
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 420, vehicleCount: 55,
+    windowRainShader: true, windowRainRefraction: false,
+    enableWetCity: true, volumetricSources: 0, volumetricSamples: 0,
+    enableDOF: true,
   },
   low: {
     rainCount: 1500, shadowMapSize: 0, enableShadows: false,
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: false, pixelRatio: 0.62,
     buildingCount: 260, vehicleCount: 34,
+    // glass shader runs (fragment-only on a single quad — free on iGPU)
+    // but without refraction. Reflector + god-rays + DOF off for Low.
+    windowRainShader: true, windowRainRefraction: false,
+    enableWetCity: false, volumetricSources: 0, volumetricSamples: 0,
+    enableDOF: false,
   },
 };
 

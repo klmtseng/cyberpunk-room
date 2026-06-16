@@ -2,21 +2,26 @@ import * as THREE from 'three';
 import { detectHardware, pickPreset, settingsFor, loadOverride } from './engine/quality';
 import { createEngine } from './engine/renderer';
 import { initXR } from './engine/xr';
-import { installLighting } from './world/lighting';
+import { installLighting, bakeEnvFromCity } from './world/lighting';
 import { buildRoom } from './world/room';
 import { buildCity } from './world/city';
 import { buildRain } from './world/weather';
 import { FPControls } from './player/fp-controls';
 import { InteractSystem } from './player/interact';
+import { TouchControls } from './player/touch-controls';
 import { BookReader } from './player/bookreader';
+import { FloorPlan } from './player/plan_view';
 import { Ambience, speakerGain } from './world/audio';
 import { HoloArcade } from './world/arcade';
 import { ROOM_BOUNDS } from './world/room';
 import { buildProps } from './world/props';
 import { buildBarLantern, buildDeskLantern, type Lantern } from './world/lantern';
+import { loadLoungeSofas } from './world/lounge_sofas';
 import { buildFlipMosaic, type FlipMosaic } from './world/flip_mosaic';
 import { CyberOS } from './pc/os';
 import { saveOverride } from './engine/quality';
+import { buildVolumetric } from './engine/volumetric';
+import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -38,7 +43,15 @@ async function boot() {
 
   step(0.1);
   const hw = await detectHardware();
-  const preset = loadOverride() ?? pickPreset(hw);
+  // Allow ?preset=ultra or #ultra to force the preset for one-shot comparison
+  // shots without needing to click through SysMon. Survives reload only if
+  // the hash/query is kept in the URL.
+  const urlPreset = (() => {
+    const m = location.hash.match(/^#(low|medium|high|ultra)$/)
+      ?? new URL(location.href).searchParams.get('preset')?.match(/^(low|medium|high|ultra)$/);
+    return m ? (m[1] as 'low' | 'medium' | 'high' | 'ultra') : null;
+  })();
+  const preset = urlPreset ?? loadOverride() ?? pickPreset(hw);
   const settings = settingsFor(preset);
   console.info('[NEON LOFT] hardware', hw, '→ preset', preset);
 
@@ -53,12 +66,35 @@ async function boot() {
   const room = buildRoom(ctx);
   const city = buildCity(ctx);
   const rain = buildRain(ctx);
+  // Volumetric god-rays (M3) — gated by preset (HD 4000 stays at 0 sources).
+  // Inserts into composer chain before bloom; anchors come from the city
+  // build (rotating holo ring, holo octahedron, searchlight).
+  const volumetric = buildVolumetric(ctx, city.volumetricAnchors);
+  // HDR env bake (M6) — one-shot CubeCamera from the room center to give
+  // every indoor MeshStandardMaterial city-colored IBL. Fail-soft.
+  bakeEnvFromCity(ctx);
 
   step(0.75);
   const controls = new FPControls(ctx.camera, canvas, { eyeHeight: 1.7 });
   controls.setWalls(room.walls);
   controls.setHeightSampler(room.heightAt);
   const ambience = new Ambience();
+  // Touch-device detection. Pointer-lock doesn't exist on touch; on the
+  // first tap we fake a "locked" state so the existing movement code path
+  // engages, and skip the pointer-lock request entirely. The `?touch=1`
+  // URL flag forces touch mode on desktop for testing without a phone.
+  const forceTouch = new URL(location.href).searchParams.get('touch') === '1';
+  const IS_TOUCH = forceTouch
+                || (navigator.maxTouchPoints ?? 0) > 0
+                || window.matchMedia('(pointer:coarse)').matches;
+  if (IS_TOUCH) {
+    document.body.classList.add('touch');
+    // Swap the desktop hint text — touch users don't have WASD / Shift / E
+    lockHint.innerHTML = '點任意處進入 NEON LOFT<br/>'
+      + '<span class="k">左下搖桿</span> 移動 · '
+      + '<span class="k">滑動</span> 視角 · '
+      + '<span class="k">點一下</span> 互動';
+  }
   controls.onLockChange(() => {
     lockHint.classList.toggle('gone', controls.isLocked);
     if (controls.isLocked) {
@@ -69,8 +105,16 @@ async function boot() {
     }
   });
   canvas.addEventListener('click', () => {
+    if (IS_TOUCH) {
+      // Touch path: no pointer-lock (doesn't exist). Fake the locked state
+      // so movement code engages, kick audio context, request fullscreen.
+      controls.setLocked(true);
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => { /* user said no */ });
+      }
+      return;
+    }
     controls.requestLock();
-    // same user gesture also grants fullscreen — immersive by default
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => { /* user said no */ });
     }
@@ -79,10 +123,62 @@ async function boot() {
   step(0.82);
   const props = buildProps(ctx);
 
+  // ---- 2D floor-plan overlay (top-down map for layout discussion) ----
+  // Toggled via term `plan` or the P key. Reads camera pose each frame but
+  // never mutates 3D state. See src/player/plan_view.ts for the canvas.
+  const planCanvas = document.getElementById('floorplan') as HTMLCanvasElement;
+  const floorPlan = new FloorPlan({
+    canvas: planCanvas,
+    worldGroups: [room.group, props.group],
+    width: ROOM_BOUNDS.w,
+    depth: ROOM_BOUNDS.d,
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyP' && !e.repeat) {
+      // ignore if user is in CyberOS terminal or reader — those handle their own keys
+      if (mode === 'os' || reader.isOpen) return;
+      floorPlan.toggle();
+    }
+  });
+
   // Turkish brass+mosaic-glass lantern on the bar/island — Blender-built GLB,
   // E to toggle, stained-glass glow when lit. Loaded async; if the GLB or
   // mosaic texture fails the rest of the room boots anyway.
   let lantern: Lantern | null = null;
+  // Lounge layout — user chose to keep the Polyhaven Victorian black-leather
+  // set; the custom Blender L-sectional is loaded but NOT added to the scene
+  // (kept for easy revert if user changes their mind). Two Sofa_02 instances
+  // arranged perpendicular form the L corner — Polyhaven has no native
+  // sectional in their catalog, so we pair the model with itself.
+  loadLoungeSofas().then(({ custom: _custom, classic, ottoman, armchair }) => {
+    // Sofa A — long edge along x, facing +z (toward window). Centred slightly
+    // south-west of original sofa anchor to leave room for piece B's footprint.
+    if (classic) {
+      classic.position.set(-0.4, 0, 1.7);
+      ctx.scene.add(classic);
+      // Sofa B — perpendicular instance. clone(true) deep-copies the gltf
+      // scene; materials are shared (one shader compile, low VRAM cost).
+      const sofaB = classic.clone(true);
+      sofaB.name = 'ClassicSofa02_B';
+      sofaB.position.set(1.45, 0, 2.7);
+      sofaB.rotation.y = -Math.PI / 2;       // back faces +x, seat opens to -x
+      ctx.scene.add(sofaB);
+    }
+    if (armchair) {
+      // accent reading chair tucked into the south-east corner, angled to face
+      // the L corner so 3 seats triangulate naturally
+      armchair.position.set(3.4, 0, 4.6);
+      armchair.rotation.y = -Math.PI * 0.65;
+      ctx.scene.add(armchair);
+    }
+    if (ottoman) {
+      // shared foot rest sitting in the L pocket — visible from both sofas
+      ottoman.position.set(0.6, 0, 3.6);
+      ottoman.rotation.y = Math.PI * 0.10;
+      ctx.scene.add(ottoman);
+    }
+  }).catch((e) => console.warn('[lounge sofas] load failed', e));
+
   buildBarLantern(new THREE.Vector3(-1.72, 0.952, -4.32), () => {
     ambience.blip(820); ambience.blip(640);
   }).then((l) => {
@@ -146,6 +242,13 @@ async function boot() {
   // ---------- interaction system ----------
   const interact = new InteractSystem(ctx.camera);
 
+  // Mount touch controls AFTER interact exists. Only adds listeners +
+  // touches DOM when IS_TOUCH is true; no-op on desktop (the joystick
+  // div is `display:none` without body.touch).
+  if (IS_TOUCH) {
+    new TouchControls(controls, interact);
+  }
+
   // holographic arcade cabinet — NEON BREAKER, actually playable
   const arcade = new HoloArcade(
     new THREE.Vector3(-4.6, 0, 4.75), 2.15, (f) => ambience.blip(f));
@@ -199,6 +302,57 @@ async function boot() {
   // seated state
   let seated = false;
   let savedPose: { pos: THREE.Vector3; yaw: number; pitch: number } | null = null;
+
+  // ---------- M5 cinema / vista mode ----------
+  // Layered over the seated state: when on, fade-in DOM letterbox bars,
+  // enable a DOF post-pass, and after 8s of no mouse jiggle accumulate a
+  // tiny yaw drift to sell "looking out the window".
+  let cinemaOn = false;
+  let cinemaIdleT = 0;          // seconds since last mouse motion (when seated)
+  let cinemaSitGrace = 0;       // seconds remaining before auto-cinema kicks in after sit
+  // letterbox DOM (cheap; doesn't fight with the WebGL canvas)
+  const letterTop = document.createElement('div');
+  const letterBot = document.createElement('div');
+  for (const bar of [letterTop, letterBot]) {
+    bar.style.cssText =
+      'position:fixed;left:0;right:0;height:0;background:#000;'
+      + 'pointer-events:none;transition:height .8s ease;z-index:37;';
+    document.body.appendChild(bar);
+  }
+  letterTop.style.top = '0';
+  letterBot.style.bottom = '0';
+  // DOF pass — gated by preset enableDOF flag. Added at boot, enabled toggled
+  // by cinema state so HD 4000 only pays the cost when the player asks for it.
+  let dofPass: EffectPass | null = null;
+  if (settings.enableDOF) {
+    const dof = new DepthOfFieldEffect(ctx.camera, {
+      focusDistance: 0.018,      // approx window distance / camera far
+      focalLength: 0.06,
+      bokehScale: settings.preset === 'ultra' ? 4.0 : 2.4,
+    });
+    dofPass = new EffectPass(ctx.camera, dof);
+    dofPass.enabled = false;     // off by default; cinema flips it on
+    // insert before the main bloom EffectPass; current order is
+    //   [RenderPass, (Volumetric?), MainEffectPass]
+    // we want   [..., DOF, MainEffectPass], so add at length-1.
+    ctx.composer.addPass(dofPass, ctx.composer.passes.length - 1);
+  }
+  const setCinema = (on: boolean): boolean => {
+    cinemaOn = on;
+    if (dofPass) dofPass.enabled = on;
+    const h = on ? '64px' : '0';
+    letterTop.style.height = h;
+    letterBot.style.height = h;
+    if (!on) cinemaIdleT = 0;
+    return on;
+  };
+  // any pointer motion cancels the idle pan (and exits cinema if user moves
+  // the mouse aggressively while not seated — sitting locks the look so a
+  // jiggle doesn't break it)
+  window.addEventListener('mousemove', () => {
+    cinemaIdleT = 0;
+    if (cinemaOn && !seated) setCinema(false);
+  });
   const stand = () => {
     if (!seated || !savedPose) return;
     seated = false;
@@ -206,6 +360,10 @@ async function boot() {
     controls.clearKeys();
     ctx.camera.position.copy(savedPose.pos);
     controls.setOrientation(savedPose.yaw, savedPose.pitch);
+    // exit cinema when standing — the cinematic crop only makes sense
+    // when the player has parked the camera and is looking out
+    if (cinemaOn) setCinema(false);
+    cinemaSitGrace = 0;
     interact.flash('起身');
   };
   window.addEventListener('keydown', (e) => {
@@ -308,6 +466,7 @@ async function boot() {
     toggleDND: () => toggleDND(),
     cycleProjector: () => room.starProjector.cycle(),
     toggleFridge: () => room.fridge.toggle(),
+    togglePlanView: () => floorPlan.toggle(),
     mosaicTV: (arg?: string) => {
       if (!mosaic) return '(未載入)';
       if (arg === 'off' || arg === 'stop') {
@@ -335,6 +494,22 @@ async function boot() {
     }),
     setPresetOverride: (p) => { saveOverride(p); location.reload(); },
     currentPreset: () => settings.preset,
+    // W5 photoreal hooks
+    setFlicker: (on) => city.setFlicker(on),
+    isFlickerOn: () => city.isFlickerOn(),
+    triggerBrownout: () => city.triggerBrownout(),
+    triggerThunder: () => {
+      city.triggerLightning();
+      ambience.thunder();
+      // duck the rain for 250ms via the existing setIntensity API; restore
+      // afterward to whatever the current weather level called for.
+      const restore = rainValue;
+      rain.setIntensity(restore * 0.4);
+      window.setTimeout(() => rain.setIntensity(restore), 250);
+      return '⚡ 閃電 + 滾雷,雨聲短暫減弱';
+    },
+    setCinema: (on) => setCinema(on),
+    isCinemaOn: () => cinemaOn,
   });
 
   // jack-in state machine: play → enter-os (camera tween) → os → play
@@ -344,6 +519,12 @@ async function boot() {
   const monitorPose = { pos: new THREE.Vector3(3.55, 1.44, 3.4), yaw: -Math.PI / 2, pitch: 0 };
   const enterOS = () => {
     if (mode !== 'play') return;
+    // CyberOS is a DOM overlay; the WebXR compositor hides DOM in immersive
+    // sessions. Block jack-in and surface a brief toast instead.
+    if (ctx.renderer.xr.isPresenting) {
+      interact.flash('⏏ CyberOS 在 VR 暫不可用 (DOM 介面)', 2400);
+      return;
+    }
     mode = 'enter-os';
     tweenT = 0;
     tweenFrom.pos.copy(ctx.camera.position);
@@ -453,6 +634,8 @@ async function boot() {
     ctx.camera.position.copy(seatBase);
     controls.setOrientation(Math.PI, -0.04);
     interact.flash('已就座 — 滑鼠左右看 · [R] 椅背 · [M] 按摩 · 移動鍵起身', 3600);
+    // arm cinema auto-enable: 1.2s grace, then fade in DOF + letterbox
+    cinemaSitGrace = 1.2;
   }, 2.8);
   window.addEventListener('keydown', (e) => {
     if (!seated) return;
@@ -827,7 +1010,7 @@ async function boot() {
   window.setInterval(fetchRealWeather, 20 * 60 * 1000);
 
   step(0.9);
-  await initXR(ctx);
+  await initXR(ctx, { controls, interact });
 
   // spawn in the living area facing the window/city
   ctx.camera.position.set(-1.5, 1.7, -0.5);
@@ -850,9 +1033,10 @@ async function boot() {
         `FPS ${fps.toFixed(0)} · ${settings.preset.toUpperCase()} · ${hw.gpuVendor}` +
         (hw.webgpuAvailable ? ' · WebGPU' : ' · WebGL2');
       if (import.meta.env.DEV) {
+        const planTag = floorPlan.isOn ? ' PLAN' : '';
         document.title = shaderErrCount > 0
-          ? `NEON-SHADER-ERR ${shaderErrCount} FPS ${fps.toFixed(0)}`
-          : `NEON-OK FPS ${fps.toFixed(0)} ${settings.preset}`;
+          ? `NEON-SHADER-ERR ${shaderErrCount} FPS ${fps.toFixed(0)}${planTag}`
+          : `NEON-OK FPS ${fps.toFixed(0)} ${settings.preset}${planTag}`;
       }
     }
   };
@@ -923,6 +1107,10 @@ async function boot() {
         g2.fillStyle = '#000';
         g2.fillRect(0, 0, c2.width, c2.height);
         g2.drawImage(canvas, 0, 0);
+        // also composite the floor-plan overlay if it's visible (dev verify hook)
+        if (floorPlan.isOn) {
+          g2.drawImage(planCanvas, 0, 0, c2.width, c2.height);
+        }
         fetch('/__shot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1035,6 +1223,7 @@ async function boot() {
       controls.update(dt);
       interact.update();
       arcade.update(t, dt);
+      if (floorPlan.isOn) floorPlan.renderFrame(ctx.camera);
       // reflective mirror: render only when the player is near the bathroom,
       // and keep the cyber-avatar glued to the player's pose
       const nearMirror = ctx.camera.position.distanceTo(room.bathroom.mirror.position) < 5;
@@ -1081,7 +1270,32 @@ async function boot() {
         const PITCH_LIMIT = 0.9;
         if (pitch > PITCH_LIMIT) pitch = PITCH_LIMIT;
         else if (pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT;
+        // ---- cinema sub-state ----
+        // arm: 1.2s after sit, fade in the bars + DOF
+        if (cinemaSitGrace > 0) {
+          cinemaSitGrace -= dt;
+          if (cinemaSitGrace <= 0 && !cinemaOn) setCinema(true);
+        }
+        // idle pan: after 8s of no mouse motion, accumulate a slow yaw
+        // oscillation around the current head pose
+        if (cinemaOn) {
+          cinemaIdleT += dt;
+          if (cinemaIdleT > 8) {
+            // ±0.06 rad oscillation, 0.4 rad/s peak speed
+            const panAmp = Math.min((cinemaIdleT - 8) / 4, 1) * 0.06;
+            const pan = Math.sin((cinemaIdleT - 8) * 0.35) * panAmp;
+            delta = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, delta + pan));
+          }
+        }
         controls.setOrientation(Math.PI + delta, pitch);
+      } else if (cinemaOn) {
+        // standalone vista mode (cinema on, no sit) — let yaw drift too
+        cinemaIdleT += dt;
+        if (cinemaIdleT > 8) {
+          const panAmp = Math.min((cinemaIdleT - 8) / 4, 1) * 0.03;
+          const pan = Math.sin((cinemaIdleT - 8) * 0.35) * panAmp;
+          controls.setOrientation(controls.getYaw() + pan * dt, controls.getPitch());
+        }
       }
       // drunk drift — head roll sway + pink overlay tint + edge vignette
       if (drunkLevel > 0.005) {
@@ -1112,6 +1326,13 @@ async function boot() {
     city.update(t, dt);
     rain.update(dt);
     props.update(t, dt);
+    // window-glass rain overlay (M1): drops + condensation animate from
+    // the same rainValue source-of-truth; curtain occlusion fades them out
+    if (room.windowRain) {
+      room.windowRain.tick(t);
+      room.windowRain.setRain(rainValue);
+      room.windowRain.setCurtain(props.curtain.amount());
+    }
     if (lantern) lantern.update(dt);
     if (deskLantern) deskLantern.update(dt);
     if (mosaic) mosaic.update(t, dt);

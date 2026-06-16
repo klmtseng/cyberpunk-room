@@ -19,6 +19,7 @@ export interface GameAPI {
   toggleDND: () => boolean;
   cycleProjector: () => string;
   toggleFridge: () => boolean;
+  togglePlanView: () => boolean;
   cycleLights: () => string;
   triggerAd: () => string;
   irisSay: () => string;
@@ -26,6 +27,17 @@ export interface GameAPI {
   getStats: () => { fps: number; preset: string; renderer: string; pos: string };
   setPresetOverride: (p: 'low' | 'medium' | 'high' | 'ultra') => void;
   currentPreset: () => string;
+  // W5 photoreal additions
+  /** flicker timeline: continuous tower sub-pulse */
+  setFlicker: (on: boolean) => void;
+  isFlickerOn: () => boolean;
+  /** force a brownout — returns the district label */
+  triggerBrownout: () => string;
+  /** thunder: pairs city.triggerLightning + ambience.thunder + rain duck */
+  triggerThunder: () => string;
+  /** cinema/vista mode toggle (DOF + letterbox + idle pan) */
+  setCinema: (on: boolean) => boolean;
+  isCinemaOn: () => boolean;
 }
 
 interface OSWindow {
@@ -127,6 +139,9 @@ export class CyberOS {
       nsHits: document.querySelectorAll('.ns .hit').length,
       fullscreen: !!document.fullscreenElement,
       pointerLocked: !!document.pointerLockElement,
+      // W5 photoreal state
+      flicker: this.api.isFlickerOn?.(),
+      cinema: this.api.isCinemaOn?.(),
     };
   }
 
@@ -485,6 +500,12 @@ export class CyberOS {
           'ad                          天際線插播一支全息廣告',
           'iris                        虹 (IRIS) 全息助理說一句',
           '',
+          '── 大氣 / 電影感 ──',
+          'flicker [off]               城市霓虹呼吸 + 隨機停電 (預設開)',
+          'brownout                    立即手動觸發一次區域停電',
+          'thunder                     雷光閃 + 滾雷音 + 雨聲短暫變小',
+          'cinema / vista [off]        電影模式:景深 + 黑邊 + 鏡頭微飄',
+          '',
           '── 影音投影 ──',
           'tv [off]                    馬賽克牆當電視/退出 (3 個本地頻道)',
           'cast [wall|tv] [<YT_ID>]    串流投影 — 預設客廳全息電視,wall=馬賽克牆',
@@ -496,6 +517,7 @@ export class CyberOS {
           'lib / books                 書架提示',
           '',
           '── 系統 / 彩蛋 ──',
+          'plan / map                  俯視 2D 平面圖 (P 鍵也可切換)',
           'stats                       顯示 FPS / 渲染器 / 座標',
           'devlog                      開啟 DEV.LOG 建造日誌',
           'viola                       開啟 VIOLA.ARCHIVE 家庭錄音',
@@ -537,6 +559,10 @@ export class CyberOS {
           : '> 接受訪客';
       case 'projector': case 'starprojector': case 'stars':
         return `> 床頭星空儀 → ${this.api.cycleProjector()}`;
+      case 'plan': case 'floorplan': case 'map':
+        return this.api.togglePlanView()
+          ? '> 2D 平面圖開啟 — 走動時三角形跟著動,再 plan 或按 P 關閉'
+          : '> 回到 3D 視角';
       case 'fridge':
         return this.api.toggleFridge() ? '> 冰箱打開了' : '> 冰箱關閉';
       case 'light': case 'lights':
@@ -566,6 +592,28 @@ export class CyberOS {
       }
       case 'ad':
         return `> 全息廣告插播 → ${this.api.triggerAd()}`;
+      case 'flicker': {
+        if (arg === 'off' || arg === '0' || arg === 'stop') {
+          this.api.setFlicker(false);
+          return '> 霓虹閃爍 → 關閉,城市靜如標本';
+        }
+        this.api.setFlicker(true);
+        return '> 霓虹閃爍 → 開啟,三色慢呼吸 + 隨機停電';
+      }
+      case 'brownout': case 'blackout':
+        return `> ${this.api.triggerBrownout()} (約 1 秒)`;
+      case 'thunder': case 'lightning':
+        return `> ${this.api.triggerThunder()}`;
+      case 'cinema': case 'vista': {
+        if (arg === 'off' || arg === '0' || arg === 'stop') {
+          this.api.setCinema(false);
+          return '> 電影模式 → 關閉';
+        }
+        const on = this.api.setCinema(arg !== 'off');
+        return on
+          ? '> 電影模式 → 開啟 — 景深 + 黑邊,自動微移鏡頭'
+          : '> 電影模式 → 關閉';
+      }
       case 'art': case 'gallery':
         return '> 名畫已上牆 — 看著任何一幅畫框按 E 可換畫';
       case 'iris':
@@ -933,6 +981,12 @@ FPS: 30±3 — on 2012 integrated graphics. Respect.
     check('term-weather-state', () => this.api.getWeather());
     check('term-neon', () => this.execTerm('neon').includes('→'));
     check('term-stats', () => this.execTerm('stats').includes('FPS'));
+    // W5 photoreal verbs — flicker / brownout / cinema must be wired through
+    check('term-flicker-off', () => this.execTerm('flicker off').includes('關閉'));
+    check('term-flicker-on', () => this.execTerm('flicker on').includes('開啟'));
+    check('term-brownout', () => /熄燈|區域/.test(this.execTerm('brownout')));
+    check('term-cinema-on', () => this.execTerm('cinema').includes('開啟'));
+    check('term-cinema-off', () => this.execTerm('cinema off').includes('關閉'));
     this.openSysMon();
     check('sysmon-open', () => this.windows.has('sysmon'));
     check('sysmon-fps-shown', () => /FPS/.test(this.windows.get('sysmon')!.body.textContent ?? ''));

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import type { EngineCtx } from '../engine/renderer';
 import { BOOKS, type Book } from '../lib/books';
+import { buildAdWall } from './ad_wall';
+import { buildWindowRainMaterial, type WindowRainHandle } from './shaders/window_rain.glsl';
 
 export interface AABB { min: THREE.Vector3; max: THREE.Vector3; }
 
@@ -16,6 +18,7 @@ export interface RoomBuild {
   group: THREE.Group;
   walls: AABB[];
   windowPlane: THREE.Mesh;
+  windowRain: WindowRainHandle | null;   // null when preset disables it (none ATM; Low still shows)
   monitorPlane: THREE.Mesh;
   heightAt: (x: number, z: number, feetY: number) => number;
   update: (t: number) => void;
@@ -102,6 +105,39 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   });
   const matFurn = new THREE.MeshLambertMaterial({ color: 0x959dba, map: texBrushed });
   const matFabric = new THREE.MeshLambertMaterial({ color: 0xb0b6cc, map: texFabric });
+
+  // Sofa-only PBR upholstery — Polyhaven CC0 leather/microsuede (1K diff +
+  // normal + roughness). Tinted to the original cyberpunk slate-blue so the
+  // colour profile of the lounge doesn't shift. Bed + other matFabric users
+  // keep the cheaper procedural texture above.
+  // See THIRD_PARTY_ASSETS.md for source/license details.
+  const texLoader = new THREE.TextureLoader();
+  const sofaDiff = texLoader.load('/assets/textures/sofa/leather_white_diff_1k.jpg');
+  const sofaNorm = texLoader.load('/assets/textures/sofa/leather_white_nor_gl_1k.jpg');
+  const sofaRough = texLoader.load('/assets/textures/sofa/leather_white_rough_1k.jpg');
+  for (const t of [sofaDiff, sofaNorm, sofaRough]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1.6, 1.6);            // tile so the weave reads at sofa scale
+    t.anisotropy = 6;
+  }
+  sofaDiff.colorSpace = THREE.SRGBColorSpace;
+  // normal + rough must stay in linear (data) space — three.js default
+  // M6: upgraded to MeshPhysicalMaterial for `sheen` — picks up grazing
+  // neon from the city IBL (scene.environment). The sheen colour is a
+  // muted blue so the halo reads as "city light catching the fabric" not
+  // as a coloured highlight that competes with the room moods.
+  const matSofa = new THREE.MeshPhysicalMaterial({
+    color: 0x6a7390,                   // slate-blue tint over the neutral suede
+    map: sofaDiff,
+    normalMap: sofaNorm,
+    normalScale: new THREE.Vector2(1.2, 1.2),
+    roughnessMap: sofaRough,
+    roughness: 0.85,
+    metalness: 0.02,
+    sheen: 0.45,
+    sheenColor: new THREE.Color(0x3a4a6a),
+    sheenRoughness: 0.6,
+  });
   const glassMat = new THREE.MeshPhysicalMaterial({
     color: 0x101e36, transparent: true, opacity: 0.16, roughness: 0.05,
     metalness: 0, transmission: 0.7, ior: 1.4, side: THREE.DoubleSide, depthWrite: false,
@@ -189,6 +225,25 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   windowPlane.position.set(0, winY0 + winH/2, D/2 - 0.02);
   windowPlane.name = 'WindowGlass';
   group.add(windowPlane);
+
+  // Rain-on-glass overlay (M1): a second, slightly inset plane carrying
+  // a fragment-only ShaderMaterial that paints drops + condensation. Layers
+  // OVER the transparent glassMat so the see-through city behind stays
+  // intact. Uniforms are pushed every frame from main.ts.
+  let windowRain: WindowRainHandle | null = null;
+  if (ctx.settings.windowRainShader) {
+    windowRain = buildWindowRainMaterial();
+    const rainPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(W - 0.1, winH),
+      windowRain.material,
+    );
+    // 1cm inside the glass plane (room-side) so the shader composites in
+    // front of the transmission layer when viewed from the living area.
+    rainPlane.position.set(0, winY0 + winH/2, D/2 - 0.035);
+    rainPlane.renderOrder = 2;       // after the transparent glass
+    rainPlane.name = 'WindowRainOverlay';
+    group.add(rainPlane);
+  }
 
   // ---------- mezzanine ----------
   const mezzD = MEZZ_EDGE - (-D/2);                    // 6m deep
@@ -360,9 +415,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
 
   // ---------- living area (double-height zone) ----------
   // L-sofa facing the window
-  solid(3.0, 0.42, 1.05, matFabric, 0.4, 0.21, 2.0);
-  box(3.0, 0.55, 0.25, matFabric, 0.4, 0.69, 1.6);                 // backrest
-  solid(1.0, 0.42, 2.2, matFabric, 2.15, 0.21, 2.6);               // chaise
+  // (The 3-box procedural L-sofa was replaced by two GLB sofas loaded from
+  // main.ts: a custom curved cyberpunk L-sectional + a Polyhaven Victorian
+  // classic for A/B comparison. See src/world/lounge_sofas.ts.)
   box(0.5, 0.16, 0.5, new THREE.MeshLambertMaterial({ color: 0xc2306a }), -0.5, 0.5, 1.9); // accent cushion
   box(0.5, 0.16, 0.5, matFurn, 0.9, 0.5, 1.95);
   strip(2.9, 0.03, 0.03, 0x5af2ff, 0.4, 0.06, 2.55, 1.4);          // sofa underglow
@@ -374,6 +429,212 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   rug.rotation.x = -Math.PI/2;
   rug.position.set(0.4, 0.012, 3.0);
   group.add(rug);
+
+  // ---------- lounge ceiling pendants (cozy cyber-loft vibe per reference) ----------
+  // 4 small Turkish-style hanging lanterns over the sofa + coffee table area.
+  // The mosaic glass body is omitted (just a brass cup) so they read as
+  // industrial filament bulbs hanging from the rafters — that's closer to
+  // the reference photos than another mosaic-glass lamp.
+  const matBrass = new THREE.MeshStandardMaterial({
+    color: 0x6a4a1c, metalness: 0.9, roughness: 0.45,
+  });
+  const matFilament = new THREE.MeshBasicMaterial({ color: 0xffd49a });
+  // 4 positions: left + right above sofa, plus 1 over coffee table, plus 1
+  // over the chaise. Each cord length varies slightly for organic feel.
+  const pendantSpots: Array<{ x: number; z: number; y: number; cord: number }> = [
+    { x: -0.9, z: 2.6, y: 3.6, cord: 0.85 },   // over sofa, left
+    { x:  0.4, z: 3.5, y: 3.2, cord: 0.65 },   // over coffee table (lowest)
+    { x:  1.8, z: 3.1, y: 3.8, cord: 0.95 },   // between sofa and chaise
+    { x:  2.5, z: 2.0, y: 3.5, cord: 0.75 },   // over chaise
+  ];
+  const pendantLights: THREE.PointLight[] = [];
+  for (const p of pendantSpots) {
+    // cord — thin dark cylinder from ceiling (y=6) down to fitting (p.y + p.cord)
+    const cordTop = 6.0;
+    const cordBottom = p.y + 0.04;
+    const cordLen = cordTop - cordBottom;
+    const cord = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.005, 0.005, cordLen, 6),
+      matDark,
+    );
+    cord.position.set(p.x, (cordTop + cordBottom) / 2, p.z);
+    group.add(cord);
+    // brass cup / shade — small cone opening downward
+    const cup = new THREE.Mesh(
+      new THREE.ConeGeometry(0.07, 0.10, 14, 1, true),
+      matBrass,
+    );
+    cup.position.set(p.x, p.y + 0.05, p.z);
+    cup.rotation.x = Math.PI;   // open end faces down
+    group.add(cup);
+    // filament bulb — small warm-emissive sphere
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), matFilament);
+    bulb.position.set(p.x, p.y - 0.02, p.z);
+    group.add(bulb);
+    // light (warm amber) — soft, short range so it pools on the sofa/table
+    const light = new THREE.PointLight(0xffc890, 6, 3.5, 1.8);
+    light.position.set(p.x, p.y - 0.05, p.z);
+    group.add(light);
+    pendantLights.push(light);
+  }
+  // gentle flicker — synchronous-ish but each with a different phase
+  pendantLights.forEach((l, i) => {
+    const phase = i * 1.3;
+    const base = l.intensity;
+    animated.push((t) => {
+      l.intensity = base * (1 + Math.sin(t * 1.8 + phase) * 0.04 + Math.sin(t * 0.7 + phase) * 0.02);
+    });
+  });
+  // Soft volumetric light shafts — billboard sprites with a teardrop radial
+  // gradient texture. Always face the camera, so the cone always looks
+  // properly "fogged" instead of like a flat cone with a hard silhouette.
+  // Opacity is low so the effect reads as "dust in lamp light", not a beam.
+  const lightShaftTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 256;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, 128, 256);
+    // teardrop gradient: brightest at top-centre (bulb), softly fading
+    // outward in an elongated radial. Edges go to fully transparent for
+    // a clean fade-to-air look — no harsh silhouette.
+    const grad = g.createRadialGradient(64, 14, 0, 64, 150, 150);
+    grad.addColorStop(0,    'rgba(255, 220, 170, 1)');
+    grad.addColorStop(0.15, 'rgba(255, 200, 140, 0.55)');
+    grad.addColorStop(0.45, 'rgba(255, 170, 110, 0.18)');
+    grad.addColorStop(0.85, 'rgba(255, 140, 80, 0.04)');
+    grad.addColorStop(1,    'rgba(0, 0, 0, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 256);
+    // sub-pixel noise so the gradient doesn't band on iGPU (banding kills
+    // the "volumetric" illusion more than anything else)
+    const img = g.getImageData(0, 0, 128, 256);
+    for (let p = 0; p < img.data.length; p += 4) {
+      const n = (Math.random() - 0.5) * 16;
+      img.data[p + 3] = Math.max(0, Math.min(255, img.data[p + 3] + n));
+    }
+    g.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  })();
+  for (const p of pendantSpots) {
+    const sprMat = new THREE.SpriteMaterial({
+      map: lightShaftTex,
+      color: 0xffc890,
+      opacity: 0.30,                 // moderate — gradient itself carries most of the fade
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    });
+    const sprite = new THREE.Sprite(sprMat);
+    // shaft spans from bulb (y=p.y) to floor (y=0). Width tapers via gradient.
+    const shaftH = p.y * 1.05;
+    const shaftW = shaftH * 0.55;    // gradient already tapers; sprite stays slim
+    sprite.scale.set(shaftW, shaftH, 1);
+    sprite.position.set(p.x, p.y - shaftH / 2 + 0.05, p.z);
+    group.add(sprite);
+  }
+
+  // (Floating dust particles removed at user request — the warm shaft sprites
+  // alone read better as cosy lamp pools without the distracting motes.)
+
+  // ---------- coffee-table candle cluster (warm flickering) ----------
+  // Coffee table top at y = 0.17 + 0.17 = 0.34. Cluster of 4 candles of
+  // varying heights at the centre, each with a tiny flame plane + flickering
+  // amber point light.
+  const matWax = new THREE.MeshStandardMaterial({ color: 0xe8d9b8, roughness: 0.85 });
+  const candleSpots: Array<{ x: number; z: number; h: number }> = [
+    { x:  0.04, z: 3.55, h: 0.13 },
+    { x:  0.22, z: 3.62, h: 0.18 },
+    { x:  0.36, z: 3.50, h: 0.10 },
+    { x:  0.18, z: 3.42, h: 0.15 },
+  ];
+  const candleLights: THREE.PointLight[] = [];
+  const flameMeshes: THREE.Mesh[] = [];
+  for (const c of candleSpots) {
+    // wax cylinder
+    const wax = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.030, c.h, 12), matWax,
+    );
+    wax.position.set(c.x, 0.34 + c.h / 2, c.z);
+    group.add(wax);
+    // wick (tiny black bit)
+    const wick = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0025, 0.0025, 0.015, 4),
+      new THREE.MeshBasicMaterial({ color: 0x222 }),
+    );
+    wick.position.set(c.x, 0.34 + c.h + 0.007, c.z);
+    group.add(wick);
+    // flame — small additive teardrop sprite (a SphereGeometry scaled tall)
+    const flame = new THREE.Mesh(
+      new THREE.SphereGeometry(0.018, 8, 6),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd070, transparent: true, opacity: 0.95,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    flame.scale.set(1, 2.2, 1);
+    flame.position.set(c.x, 0.34 + c.h + 0.038, c.z);
+    group.add(flame);
+    flameMeshes.push(flame);
+    // candle point light — short range, warm
+    const cl = new THREE.PointLight(0xffb060, 2.2, 1.2, 2.2);
+    cl.position.set(c.x, 0.34 + c.h + 0.05, c.z);
+    group.add(cl);
+    candleLights.push(cl);
+  }
+  // candle flicker — independent per candle so the cluster feels alive
+  candleLights.forEach((l, i) => {
+    const phase = i * 1.7 + 0.5;
+    const baseI = l.intensity;
+    const flame = flameMeshes[i];
+    const baseY = flame.position.y;
+    animated.push((t) => {
+      const f = 1 + Math.sin(t * 6 + phase) * 0.18 + Math.sin(t * 17 + phase) * 0.05;
+      l.intensity = baseI * f;
+      flame.scale.set(1 + 0.10 * Math.sin(t * 13 + phase),
+                       2.2 + 0.25 * Math.sin(t * 11 + phase), 1);
+      flame.position.y = baseY + Math.sin(t * 9 + phase) * 0.004;
+    });
+  });
+
+  // ---------- plush throw cushions + blanket on the sofa ----------
+  // Reference photos are heavy on layered pillows. Add 6 more cushions of
+  // varying sizes and warm colours scattered across the L-sofa, plus a folded
+  // throw blanket draped on the chaise armrest.
+  // Cushion positions tuned for the 2× Polyhaven Sofa_02 L-formation set up
+  // in main.ts. Sofa_02 seat top sits ~0.45m → cushion y=0.50 puts cushion
+  // bottom on seat (height 0.16 → top at 0.58, well clear of backrest 0.71).
+  //   Sofa A (centred -0.4, rot 0):     x∈[-1.30, 0.50], z∈[1.29, 2.10]
+  //   Sofa B (centred  1.45, rot -π/2): x∈[ 1.05, 1.85], z∈[1.79, 3.59]
+  const cushionPalette: Array<[number, number, number, number, number, number]> = [
+    // [x, y, z, w, h, color]
+    [-1.05, 0.52, 1.65, 0.34, 0.17,  0xb04060],   // burgundy on sofa A, left
+    [-0.30, 0.52, 1.55, 0.30, 0.15,  0x303860],   // navy on sofa A, mid
+    [ 0.35, 0.52, 1.60, 0.36, 0.18,  0x884420],   // burnt orange on sofa A, right
+    [ 1.55, 0.52, 2.10, 0.34, 0.16,  0x506080],   // slate on sofa B, low z
+    [ 1.55, 0.52, 3.30, 0.30, 0.17,  0xa0826a],   // sand on sofa B, high z
+    [ 1.55, 0.52, 2.80, 0.28, 0.15,  0x383454],   // plum on sofa B, mid
+  ];
+  for (const [cx, cy, cz, cw, ch, col] of cushionPalette) {
+    const cushion = new THREE.Mesh(
+      new THREE.BoxGeometry(cw, ch, cw),
+      new THREE.MeshLambertMaterial({ color: col }),
+    );
+    cushion.position.set(cx, cy, cz);
+    cushion.rotation.y = (Math.random() - 0.5) * 0.5;
+    group.add(cushion);
+  }
+  // folded throw blanket draped over the chaise top
+  const blanketMat = new THREE.MeshLambertMaterial({
+    color: 0xb05030, map: makeFabricTexture(0x6a3018),
+  });
+  const blanket = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.55), blanketMat);
+  // draped over the back-end of sofa B (which extends along +z)
+  blanket.position.set(1.55, 0.50, 3.30);
+  blanket.rotation.y = Math.PI / 2 + 0.15;     // long edge along z to match sofa B
+  group.add(blanket);
 
   // contact shadows under the major pieces
   blob(3.8, 1.8, 0.4, 2.0, 0.014);          // sofa
@@ -481,6 +742,10 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   // facing = π/2 → chair seat faces +x (toward desk at x=5.65)
   // chair centre at x=5.00 → seat front at x=5.25, slightly under the desk overhang
   buildGamingChair(group, 5.00, 0, 3.4, Math.PI / 2, matDark, matSteel);
+
+  // (Indoor AD wall removed — user wanted dense ad density on EXTERIOR city
+  // buildings instead, not on the home wall. See city.ts buildAdWall import
+  // for the outdoor placement.)
 
   // ---------- bookshelf (right wall): antique paper above, data shards below ----------
   // open-front frame (a solid box would swallow the books entirely)
@@ -1724,7 +1989,7 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   const update = (t: number) => { for (const f of animated) f(t); };
 
   return {
-    group, walls, windowPlane, monitorPlane, heightAt, update,
+    group, walls, windowPlane, windowRain, monitorPlane, heightAt, update,
     bathroom: {
       door, toggleDoor, toilet: toiletSeat, mirror, shower: showerHead, toggleShower,
       setRealWeather: (w) => {
