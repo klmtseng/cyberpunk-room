@@ -1144,6 +1144,13 @@ async function boot() {
   // instead of leaving the user staring at a blank canvas.
   const showGpuFailOverlay = () => {
     if (document.getElementById('gpufail')) return;
+    // The "use Firefox" advice only applies to desktop Chrome on broken
+    // ANGLE drivers (the original audience for this overlay). On iOS all
+    // browsers wrap WebKit so "switch to Firefox" is meaningless. On
+    // touch devices in general, three.js shader warnings can fire false
+    // positives even when the scene renders fine — skip the overlay
+    // there and just log to title bar via the existing diagnostics path.
+    if (IS_TOUCH) return;
     const el = document.createElement('div');
     el.id = 'gpufail';
     el.style.cssText = 'position:fixed;inset:0;z-index:200;display:grid;place-items:center;' +
@@ -1156,10 +1163,15 @@ async function boot() {
   };
   canvas.addEventListener('webglcontextlost', () => {
     document.title = 'NEON-CTX-LOST';
-    showGpuFailOverlay();
+    if (!IS_TOUCH) showGpuFailOverlay();
     sendBeacon();
   });
-  setTimeout(() => { if (shaderErrCount > 0) showGpuFailOverlay(); }, 4000);
+  setTimeout(() => {
+    // Only fire on desktop. Touch devices' shader warnings (e.g. iOS
+    // Safari complaining about precision qualifiers it doesn't actually
+    // honour) routinely log to console.error without breaking rendering.
+    if (!IS_TOUCH && shaderErrCount > 0) showGpuFailOverlay();
+  }, 4000);
 
   // dev-only render health beacon (no-op in production builds)
   let lastCmdNonce = '';
