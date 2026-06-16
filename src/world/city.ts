@@ -1086,15 +1086,24 @@ export function buildCity(ctx: EngineCtx): CityRig {
       (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = maxAniso;
+        // Each panel gets its own material (so we can flicker opacity per
+        // spot independently) and its own phase offset for the LFO. The
+        // flicker mixes a slow LFO with a rare full-outage so the city
+        // reads as a living grid of dodgy projectors.
+        type PanelAnim = {
+          mat: THREE.MeshBasicMaterial;
+          phase: number;
+          outageUntil: number;       // t-seconds until power is restored
+          nextOutage: number;        // next planned outage start
+        };
+        const panels: PanelAnim[] = [];
         for (const s of facadeSpots) {
           const mat = new THREE.MeshBasicMaterial({
             map: tex,
-            transparent: false,
+            transparent: true,          // need transparency for flicker
+            opacity: 1.0,
             depthWrite: true,
             fog: true,
-            // additive would blow it out against the bright neon city; use
-            // normal blending with the texture's own brightness driving the
-            // "LED panel" feel
             toneMapped: false,
           });
           const panel = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), mat);
@@ -1102,7 +1111,30 @@ export function buildCity(ctx: EngineCtx): CityRig {
           panel.rotation.y = s.rotY;
           panel.name = `FacadeLED_${s.x}_${s.z}`;
           group.add(panel);
+          panels.push({
+            mat,
+            phase: Math.random() * Math.PI * 2,
+            outageUntil: 0,
+            nextOutage: 8 + Math.random() * 20,
+          });
         }
+        updaters.push((t, _dt) => {
+          for (const p of panels) {
+            // Slow LFO: opacity 0.78..1.00 — feels like power-grid jitter
+            let op = 0.89 + 0.11 * Math.sin(t * 1.4 + p.phase);
+            // Fast micro-flicker: occasional sub-frame dim
+            op *= 0.92 + 0.08 * Math.sin(t * 17.3 + p.phase * 2.1);
+            // Outage event: ~every 12-30s a 0.4-1.2s window where the
+            // panel cuts to near-black (a transformer brown-out look)
+            if (t < p.outageUntil) {
+              op *= 0.06;
+            } else if (t > p.nextOutage) {
+              p.outageUntil = t + 0.4 + Math.random() * 0.8;
+              p.nextOutage = t + 12 + Math.random() * 18;
+            }
+            p.mat.opacity = op;
+          }
+        });
       },
       undefined,
       () => { /* texture missing — fewer billboards is fine */ },
@@ -1261,10 +1293,24 @@ export function buildCity(ctx: EngineCtx): CityRig {
     ['/assets/video/hoload_TW-T7iP5xvk.mp4', 'MEGACITY LOOP'],
     ['/assets/video/hoload_pyR8g6a10R0.mp4', 'I OWN TIME'],
   ];
-  const AD_SLOTS: Array<[number, number, number, number]> = [
-    [-46, 8, 135, Math.PI - 0.25],
-    [60, -2, 180, Math.PI + 0.3],
-    [2, 26, 250, Math.PI],
+  // Slot kinds:
+  //   'air'  — floating mid-air projection between buildings (default size)
+  //   'wall' — bigger projection flush against a tower face, simulating a
+  //            giant LED wrap. Wall slots are positioned just outside the
+  //            tower-belt cone where main towers actually sit (~z=70+).
+  type AdSlot = { x: number; y: number; z: number; ry: number;
+                  mode: 'air' | 'wall'; w: number; h: number; };
+  const AD_SLOTS: AdSlot[] = [
+    { x: -46, y:   8, z: 135, ry: Math.PI - 0.25, mode: 'air',  w: 30, h: 16.9 },
+    { x:  60, y:  -2, z: 180, ry: Math.PI + 0.3,  mode: 'air',  w: 30, h: 16.9 },
+    { x:   2, y:  26, z: 250, ry: Math.PI,        mode: 'air',  w: 30, h: 16.9 },
+    // Wall-mounted: bigger panels parked on tower faces visible from the
+    // window. Sizes match the LED-billboard scale (28-50m wide × 30m tall).
+    // ry derived from atan2(x_to_player, z_to_player) so each panel faces
+    // the spawn camera at (~0, _, 0).
+    { x: -52, y:  20, z: 110, ry: Math.PI - 0.44, mode: 'wall', w: 48, h: 28 },
+    { x:  65, y:  35, z: 150, ry: Math.PI + 0.41, mode: 'wall', w: 50, h: 30 },
+    { x: -38, y:  12, z: 200, ry: Math.PI - 0.19, mode: 'wall', w: 42, h: 26 },
   ];
   const adVideo = document.createElement('video');
   adVideo.muted = true;
@@ -1311,9 +1357,12 @@ export function buildCity(ctx: EngineCtx): CityRig {
   let adName = '';
   const startAd = (): string => {
     const [file, name] = AD_FILES[Math.floor(Math.random() * AD_FILES.length)];
-    const [ax, ay, az, ry] = AD_SLOTS[Math.floor(Math.random() * AD_SLOTS.length)];
-    adPlane.position.set(ax, ay, az);
-    adPlane.rotation.y = ry;
+    const slot = AD_SLOTS[Math.floor(Math.random() * AD_SLOTS.length)];
+    adPlane.position.set(slot.x, slot.y, slot.z);
+    adPlane.rotation.y = slot.ry;
+    // Re-scale the plane to match the slot's intended footprint. Base
+    // geometry is 30×16.9 so scale factors derive from that.
+    adPlane.scale.set(slot.w / 30, slot.h / 16.9, 1);
     adName = name;
     adVideo.src = file;
     adVideo.currentTime = 0;
