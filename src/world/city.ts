@@ -1566,7 +1566,7 @@ async function loadPhotoBackdrop(group: THREE.Group): Promise<void> {
 
   try {
     // main aerial panorama on a curved shell behind the towers
-    const aerial = await load('/assets/textures/backdrop/backdrop_aerial.png');
+    const aerial = await load('/assets/textures/backdrop/backdrop_aerial.webp');
     const theta = 1.5;
     const cyl = new THREE.Mesh(
       new THREE.CylinderGeometry(430, 430, 260, 48, 1, true, -theta / 2, theta),
@@ -1582,8 +1582,8 @@ async function loadPhotoBackdrop(group: THREE.Group): Promise<void> {
 
   // street-level fills angled in from the sides
   const sides: Array<[string, number, number, number, number]> = [
-    ['/assets/textures/backdrop/backdrop_street_a.png', -240, -52, 215, Math.PI - 0.65],
-    ['/assets/textures/backdrop/backdrop_street_b.png', 245, -58, 235, Math.PI + 0.7],
+    ['/assets/textures/backdrop/backdrop_street_a.webp', -240, -52, 215, Math.PI - 0.65],
+    ['/assets/textures/backdrop/backdrop_street_b.webp', 245, -58, 235, Math.PI + 0.7],
   ];
   for (const [url, x, y, z, ry] of sides) {
     try {
