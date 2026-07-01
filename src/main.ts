@@ -19,6 +19,7 @@ import { buildBarLantern, buildDeskLantern, type Lantern } from './world/lantern
 import { loadLoungeSofas } from './world/lounge_sofas';
 import { buildFlipMosaic, type FlipMosaic } from './world/flip_mosaic';
 import { CyberOS } from './pc/os';
+import { RoomState, type DeviceDef } from './state/room_state';
 import { saveOverride } from './engine/quality';
 import { buildVolumetric } from './engine/volumetric';
 import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
@@ -328,15 +329,73 @@ async function boot() {
   // ---------- weather state (terminal-controllable) ----------
   let weatherLevel: 'off' | 'light' | 'heavy' = 'light';
   let rainValue = 0.8;
-  const setWeather = (level: 'off' | 'light' | 'heavy') => {
+  // raw scene applier — RoomState owns the canonical value; everyone else
+  // (E-press, terminal, URL restore, future sync) goes through setWeather.
+  const applyWeather = (level: 'off' | 'light' | 'heavy') => {
     weatherLevel = level;
     rainValue = level === 'off' ? 0 : level === 'light' ? 0.8 : 1.9;
     rain.setIntensity(Math.max(rainValue, 0.0001));
     rain.rain.visible = level !== 'off';
   };
+  const setWeather = (level: 'off' | 'light' | 'heavy') => {
+    roomState.set('weather', level);
+  };
 
   // ---------- interaction system ----------
   const interact = new InteractSystem(ctx.camera);
+
+  // ---------- RoomState: serialisable source of truth for devices (M2) ----
+  // E-press / terminal / URL-restore / future multiplayer all mutate through
+  // this store; props only receive absolute apply() calls from it.
+  const roomState = new RoomState();
+  // M4 share: a #room=<token> in the URL is a full room snapshot. Devices
+  // that register late (async lanterns) pull their own pending value, so
+  // restore isn't a single boot-time pass that async loads could miss.
+  const pendingSnap = (() => {
+    const m = location.hash.match(/room=([A-Za-z0-9_-]+)/);
+    return m ? RoomState.decode(m[1]) : null;
+  })();
+  const registerDevice = (def: DeviceDef): void => {
+    roomState.register(def);
+    if (pendingSnap && def.id in pendingSnap) {
+      roomState.set(def.id, pendingSnap[def.id], 'restore');
+    }
+  };
+  // keep the address bar shareable at all times (debounced hash rewrite)
+  let urlTimer = 0;
+  roomState.subscribe(() => {
+    window.clearTimeout(urlTimer);
+    urlTimer = window.setTimeout(() => {
+      history.replaceState(null, '', `#room=${roomState.encode()}`);
+    }, 400);
+  });
+  const shareURL = (): string =>
+    `${location.origin}${location.pathname}#room=${roomState.encode()}`;
+
+  registerDevice({
+    id: 'weather', value: 'light', states: ['off', 'light', 'heavy'],
+    apply: (v) => applyWeather(v as 'off' | 'light' | 'heavy'),
+  });
+  registerDevice({
+    id: 'curtain', value: false, states: [false, true],
+    apply: (v) => props.curtain.set(v as boolean),
+  });
+  registerDevice({
+    id: 'pendants', value: true, states: [false, true],
+    apply: (v) => { if (props.counterPendants.isOn() !== v) props.counterPendants.toggle(); },
+  });
+  registerDevice({
+    id: 'neon', value: props.neonSign.names[0], states: props.neonSign.names,
+    apply: (v) => props.neonSign.set(v as string),
+  });
+  registerDevice({
+    id: 'tv', value: props.tv.channelNames[0], states: props.tv.channelNames,
+    apply: (v) => { props.tv.setChannel(v as string); },
+  });
+  registerDevice({
+    id: 'holo', value: props.holo.names[0], states: props.holo.names,
+    apply: (v) => props.holo.set(v as string),
+  });
 
   // Mount touch controls AFTER interact exists. Only adds listeners +
   // touches DOM when IS_TOUCH is true; no-op on desktop (the joystick
@@ -490,11 +549,14 @@ async function boot() {
       f.color.copy(baseColors[i]); // undo any party-mode hue sweep
     });
   };
-  const cycleLights = (): string => {
-    moodIdx = (moodIdx + 1) % MOODS.length;
-    applyMood();
-    return MOODS[moodIdx].name;
-  };
+  registerDevice({
+    id: 'mood', value: MOODS[0].name, states: MOODS.map((m) => m.name),
+    apply: (v) => {
+      const i = MOODS.findIndex((m) => m.name === v);
+      if (i >= 0) { moodIdx = i; applyMood(); }
+    },
+  });
+  const cycleLights = (): string => String(roomState.advance('mood'));
   const partyHue = new THREE.Color();
 
   // ---------- electric sofa extras (recline + massage) ----------
@@ -671,7 +733,7 @@ async function boot() {
       stopCast();
       interact.flash('📽 投影結束');
     } else {
-      interact.flash(`📽 投影:${props.tv.cycleChannel()}`);
+      interact.flash(`📽 投影:${String(roomState.advance('tv'))}`);
     }
   }, 3.0);
   interact.add(props.tv.screen, '切換頻道', () => {
@@ -679,10 +741,10 @@ async function boot() {
       if (castVideo.paused) { void castVideo.play(); interact.flash('▶ 續播'); }
       else { castVideo.pause(); interact.flash('⏸ 暫停'); }
     } else {
-      interact.flash(`📽 投影:${props.tv.cycleChannel()}`);
+      interact.flash(`📽 投影:${String(roomState.advance('tv'))}`);
     }
   }, 4.5);
-  interact.add(props.neonSign.mesh, '切換霓虹色', () => interact.flash(`✨ ${props.neonSign.cycle()}`), 4.5);
+  interact.add(props.neonSign.mesh, '切換霓虹色', () => interact.flash(`✨ ${String(roomState.advance('neon'))}`), 4.5);
   interact.add(props.recordPlayer.mesh, '播放黑膠 (合成器墊音)', () => {
     const on = ambience.togglePad();
     props.recordPlayer.setSpin(on);

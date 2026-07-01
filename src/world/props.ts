@@ -11,18 +11,23 @@ export interface PropsRig {
     mesh: THREE.Mesh;
     screen: THREE.Mesh;
     cycleChannel: () => string;
+    setChannel: (name: string) => string;
+    channelNames: readonly string[];
     cast: (video: HTMLVideoElement) => void;
     stopCast: () => void;
     isCasting: () => boolean;
     cycleHoloTint: () => string;
   };
-  neonSign: { mesh: THREE.Mesh; light: THREE.PointLight; cycle: () => string };
+  neonSign: {
+    mesh: THREE.Mesh; light: THREE.PointLight;
+    cycle: () => string; set: (name: string) => void; names: readonly string[];
+  };
   bar: { pulse: () => void; glass: THREE.Object3D };
   pickables: Array<{ obj: THREE.Object3D; name: string }>;
   counterPendants: { hit: THREE.Object3D; toggle: () => boolean; isOn: () => boolean };
   recordPlayer: { mesh: THREE.Mesh; setSpin: (on: boolean) => void };
-  curtain: { panel: THREE.Mesh; toggle: () => boolean; amount: () => number };
-  holo: { base: THREE.Mesh; cycle: () => string };
+  curtain: { panel: THREE.Mesh; toggle: () => boolean; set: (closed: boolean) => void; amount: () => number };
+  holo: { base: THREE.Mesh; cycle: () => string; set: (name: string) => void; names: readonly string[] };
   lightPanel: THREE.Mesh;
   cat: { body: THREE.Mesh; pet: () => void };
   coffee: { machine: THREE.Mesh; brew: () => boolean };
@@ -374,9 +379,8 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   // initial: boot in CRT mode
   applyChannelBlending();
 
-  const cycleChannel = () => {
-    if (castingNow) return '點播中';
-    tvChannel = (tvChannel + 1) % 4;
+  const applyChannel = (i: number): string => {
+    tvChannel = i;
     holoScreen.visible = true;
     tvScaleTarget = 1;
     applyChannelBlending();
@@ -384,6 +388,15 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(ledHue);
     drawTV(0);
     return tvNames[tvChannel];
+  };
+  const cycleChannel = () => {
+    if (castingNow) return '點播中';
+    return applyChannel((tvChannel + 1) % 4);
+  };
+  const setChannel = (name: string): string => {
+    if (castingNow) return '點播中';
+    const i = tvNames.indexOf(name);
+    return i >= 0 ? applyChannel(i) : tvNames[tvChannel];
   };
 
   // ---------- record player on a sideboard (back wall of living area) ----------
@@ -420,13 +433,19 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   const signLight = new THREE.PointLight(NEON_COLORS[0][0], 14, 7, 1.8);
   signLight.position.set(0.4, 2.5, 6.3);
   group.add(signLight);
-  const cycleNeon = () => {
-    neonIdx = (neonIdx + 1) % NEON_COLORS.length;
+  const applyNeon = (i: number): string => {
+    neonIdx = i;
     const [hex, name] = NEON_COLORS[neonIdx];
     (neonSign.material as THREE.MeshStandardMaterial).emissive.setHex(hex);
     signLight.color.setHex(hex);
     return name;
   };
+  const cycleNeon = () => applyNeon((neonIdx + 1) % NEON_COLORS.length);
+  const setNeon = (name: string): void => {
+    const i = NEON_COLORS.findIndex(([, n]) => n === name);
+    if (i >= 0) applyNeon(i);
+  };
+  const neonNames = NEON_COLORS.map(([, n]) => n);
 
   // ---------- bar dressing: bottles + glass on the island ----------
   const pickables: Array<{ obj: THREE.Object3D; name: string }> = [];
@@ -737,8 +756,8 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     if (g) { g.position.set(HOLO_X, HOLO_Y, HOLO_Z); g.visible = false; group.add(g); }
   }
   let holoIdx = 0;
-  const holoCycle = (): string => {
-    holoIdx = (holoIdx + 1) % holoChannels.length;
+  const applyHolo = (target: number): string => {
+    holoIdx = target;
     holoChannels.forEach(([, g], i) => { if (g) g.visible = i === holoIdx; });
     const on = holoIdx !== 0;
     holoCone.visible = on;
@@ -746,6 +765,12 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     (holoRing.material as THREE.MeshStandardMaterial).emissiveIntensity = on ? 3 : 0.6;
     return holoChannels[holoIdx][0];
   };
+  const holoCycle = (): string => applyHolo((holoIdx + 1) % holoChannels.length);
+  const setHolo = (name: string): void => {
+    const i = holoChannels.findIndex(([n]) => n === name);
+    if (i >= 0) applyHolo(i);
+  };
+  const holoNames = holoChannels.map(([n]) => n);
   holoCone.visible = false;
   updaters.push((t, _dt) => {
     if (holoIdx === 0) return;
@@ -1201,11 +1226,11 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     speakerPositions,
     speakers: speakerBodies,
     tv: {
-      mesh: tv, screen: holoScreen, cycleChannel,
+      mesh: tv, screen: holoScreen, cycleChannel, setChannel, channelNames: tvNames,
       cast, stopCast, isCasting: () => castingNow,
       cycleHoloTint,
     },
-    neonSign: { mesh: neonSign, light: signLight, cycle: cycleNeon },
+    neonSign: { mesh: neonSign, light: signLight, cycle: cycleNeon, set: setNeon, names: neonNames },
     bar: { pulse, glass },
     pickables,
     counterPendants: { hit: pendantHit, toggle: togglePendants, isOn: () => pendantOn },
@@ -1216,9 +1241,10 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     curtain: {
       panel,
       toggle: () => { curtainTarget = curtainTarget > 0.5 ? 0 : 1; return curtainTarget > 0.5; },
+      set: (closed: boolean) => { curtainTarget = closed ? 1 : 0; },
       amount: () => curtainAmount,
     },
-    holo: { base: holoBase, cycle: holoCycle },
+    holo: { base: holoBase, cycle: holoCycle, set: setHolo, names: holoNames },
     lightPanel,
     cat: {
       body: catBody,

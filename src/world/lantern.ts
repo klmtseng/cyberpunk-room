@@ -14,6 +14,8 @@ export interface Lantern {
   hit: THREE.Object3D;
   /** Cycle to next brightness level. Returns the new label. */
   cycle: () => LanternLevelLabel;
+  /** Absolute setter (for RoomState restore/sync). Silent: no click blip. */
+  set: (lvl: LanternLevelLabel) => void;
   /** Convenience: cycle wrapping off↔bright (skips dim). */
   toggle: () => boolean;
   isOn: () => boolean;
@@ -148,6 +150,14 @@ export async function buildLantern(opts: LanternOpts): Promise<Lantern> {
     return order[idx];
   };
 
+  // absolute setter — programmatic (restore/sync), so no click blip
+  const set = (lvl: LanternLevelLabel): void => {
+    const i = order.indexOf(lvl);
+    if (i < 0) return;
+    idx = i;
+    applyTarget();
+  };
+
   // toggle: jump off → bright (or bright → off), skipping intermediate dim
   const toggle = (): boolean => {
     idx = order[idx] === 'off' ? order.indexOf('bright') : 0;
@@ -158,7 +168,7 @@ export async function buildLantern(opts: LanternOpts): Promise<Lantern> {
   };
 
   return {
-    group, hit, cycle, toggle,
+    group, hit, cycle, set, toggle,
     isOn: () => order[idx] !== 'off',
     level: () => order[idx],
     update,
