@@ -86,8 +86,8 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   const tvG = tvCanvas.getContext('2d')!;
   const tvTex = new THREE.CanvasTexture(tvCanvas);
   tvTex.colorSpace = THREE.SRGBColorSpace;
-  let tvChannel = 0; // 0 off, 1 static, 2 ad loop, 3 city spectrum
-  const tvNames = ['OFF', '雜訊', '廣告', '城市頻譜'];
+  let tvChannel = 0; // 0 CRT scan (default), 1 static, 2 ad loop, 3 city spectrum
+  const tvNames = ['CRT 軌道追蹤', '雜訊', '廣告', '城市頻譜'];
   // the projector: a slim picture-frame on the wall
   const tv = new THREE.Mesh(
     new THREE.BoxGeometry(0.05, 0.5, 0.72),
@@ -115,8 +115,9 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   );
   holoScreen.position.set(0.4, SCREEN_Y, 5.1);
   holoScreen.rotation.y = Math.PI;
-  holoScreen.scale.y = 0.001;
-  holoScreen.visible = false;
+  // visible from boot — default channel 0 is now a CRT scan (no longer "off")
+  holoScreen.scale.y = 1;
+  holoScreen.visible = true;
   holoScreen.name = 'HoloScreen';
   group.add(holoScreen);
   // TV-set dressing: slim bezel + glowing under-bar, scale with the screen
@@ -204,11 +205,103 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     tvScaleTarget = 0;
     (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(0xff3344);
   };
-  let tvScaleTarget = 0;
+  let tvScaleTarget = 1;   // visible from boot now that channel 0 is the CRT
   let tvTimer = 0;
-  const drawTV = () => {
-    if (tvChannel === 0) { tvG.fillStyle = '#000'; tvG.fillRect(0, 0, 192, 108); }
-    else if (tvChannel === 1) {
+  // Channel 0 — early-space CRT cathode-ray look. Deep navy + cyan phosphor
+  // wireframe sphere + sweeping scan beam + ASCII telemetry + occasional
+  // tracking glitch. Designed to feel like the Nostromo computer / 1970s
+  // mission-control terminals (cyberpunk's nostalgic ancestor).
+  const drawCRT = (t: number) => {
+    // base deep navy
+    tvG.fillStyle = '#02091a'; tvG.fillRect(0, 0, 192, 108);
+    // overall flicker brightness (slow 0.85-1.15 sine, fast 5%+ jitter)
+    const flick = 0.88 + 0.12 * Math.sin(t * 1.7) + 0.04 * Math.sin(t * 4.3)
+                  + (Math.random() - 0.5) * 0.08;
+    const c = (a: number): string => `rgba(120, 220, 255, ${Math.max(0, a * flick).toFixed(3)})`;
+
+    // starfield (tiny phosphor dots, slow twinkle)
+    for (let i = 0; i < 28; i++) {
+      const seed = i * 137 + 13;
+      const x = (seed * 19) % 192;
+      const y = (seed * 31) % 108;
+      const s = 0.35 + 0.65 * Math.sin(t * 1.3 + i);
+      tvG.fillStyle = c(s * 0.42);
+      tvG.fillRect(x, y, 1, 1);
+    }
+
+    // wireframe planet — rotating set of ellipses (latitude + longitude rings)
+    const cx = 96, cy = 56, r = 21;
+    tvG.lineWidth = 1;
+    // equator
+    tvG.strokeStyle = c(0.62);
+    tvG.beginPath(); tvG.arc(cx, cy, r, 0, Math.PI * 2); tvG.stroke();
+    // 3 longitude rings rotating
+    const rot = t * 0.45;
+    for (let i = 0; i < 3; i++) {
+      const a = rot + (i * Math.PI) / 3;
+      tvG.strokeStyle = c(0.40 + 0.18 * Math.sin(a));
+      tvG.beginPath();
+      tvG.ellipse(cx, cy, Math.abs(r * Math.cos(a)) + 0.5, r, 0, 0, Math.PI * 2);
+      tvG.stroke();
+    }
+    // 2 latitude ellipses (flat tilt)
+    tvG.strokeStyle = c(0.35);
+    tvG.beginPath(); tvG.ellipse(cx, cy, r, r * 0.32, 0, 0, Math.PI * 2); tvG.stroke();
+    tvG.beginPath(); tvG.ellipse(cx, cy, r * 0.7, r * 0.22, 0, 0, Math.PI * 2); tvG.stroke();
+    // centre dot
+    tvG.fillStyle = c(0.85); tvG.fillRect(cx, cy, 1, 1);
+
+    // ASCII telemetry — top + bottom strips
+    tvG.font = '8px "Share Tech Mono", monospace';
+    tvG.textAlign = 'left'; tvG.textBaseline = 'top';
+    tvG.fillStyle = c(0.78);
+    tvG.fillText('▶ ORBIT TRK', 4, 4);
+    tvG.fillText(`T+${Math.floor(t * 10).toString().padStart(5, '0')}`, 4, 96);
+    tvG.textAlign = 'right';
+    tvG.fillText('SEC 9-A', 188, 4);
+    // pulse-status: PHASE STABLE / TRACK LOCK / DRIFT etc. randomly cycle
+    const phaseT = Math.floor(t * 0.6) % 4;
+    const phases = ['PHASE STABLE', 'TRACK LOCK', 'SIGNAL OK', 'CARRIER'];
+    tvG.fillText(phases[phaseT], 188, 96);
+    // blinking cursor at top-left
+    if (Math.floor(t * 2.4) % 2 === 0) {
+      tvG.fillStyle = c(1.0);
+      tvG.fillRect(80, 4, 3, 8);
+    }
+
+    // sweeping scan beam — bright cyan line moves top to bottom with afterglow
+    const scanY = (t * 28) % 130 - 12;        // start above and end below to wrap cleanly
+    for (let dy = -10; dy <= 4; dy++) {
+      const y = scanY + dy;
+      if (y < 0 || y >= 108) continue;
+      // afterglow trails above, sharp leading edge below
+      const fall = dy <= 0 ? 1 + dy / 10 : Math.max(0, 1 - dy / 4);
+      tvG.fillStyle = c(0.32 * fall);
+      tvG.fillRect(0, y, 192, 1);
+    }
+
+    // horizontal tracking glitch — rare, lasts 1 frame
+    if (Math.random() > 0.97) {
+      const gy = Math.floor(Math.random() * 100);
+      const gh = 2 + Math.floor(Math.random() * 4);
+      const shift = Math.floor((Math.random() - 0.5) * 14);
+      const slice = tvG.getImageData(0, gy, 192, gh);
+      tvG.fillStyle = '#02091a';
+      tvG.fillRect(0, gy, 192, gh);
+      tvG.putImageData(slice, shift, gy);
+    }
+
+    // vignette — radial darken at corners, sells the CRT curvature
+    const grad = tvG.createRadialGradient(96, 54, 30, 96, 54, 120);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+    tvG.fillStyle = grad;
+    tvG.fillRect(0, 0, 192, 108);
+  };
+  const drawTV = (t: number) => {
+    if (tvChannel === 0) {
+      drawCRT(t);
+    } else if (tvChannel === 1) {
       const d = tvG.createImageData(192, 108);
       for (let i = 0; i < d.data.length; i += 4) {
         const v = Math.random() * 255;
@@ -218,7 +311,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     } else if (tvChannel === 2) {
       tvG.fillStyle = '#0a0614'; tvG.fillRect(0, 0, 192, 108);
       tvG.fillStyle = ['#ff2bdb', '#5af2ff', '#ffe14d'][Math.floor(Date.now() / 900) % 3];
-      tvG.font = 'bold 26px sans-serif'; tvG.textAlign = 'center';
+      tvG.font = 'bold 26px sans-serif'; tvG.textAlign = 'center'; tvG.textBaseline = 'alphabetic';
       tvG.fillText(['買!', 'NEON', '雨夜'][Math.floor(Date.now() / 900) % 3], 96, 62);
     } else {
       tvG.fillStyle = '#060a14'; tvG.fillRect(0, 0, 192, 108);
@@ -235,7 +328,10 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   };
   updaters.push((t, dt) => {
     tvTimer += dt;
-    if (tvChannel !== 0 && tvTimer > 0.18) { tvTimer = 0; drawTV(); }
+    // CRT mode wants smooth scan beam → repaint faster (~10 fps); other
+    // channels keep the original 5 fps to save canvas paint cost
+    const interval = tvChannel === 0 ? 0.10 : 0.18;
+    if (tvTimer > interval) { tvTimer = 0; drawTV(t); }
     // materialize / collapse + holo flicker
     const target = tvScaleTarget;
     holoScreen.scale.y += (target - holoScreen.scale.y) * Math.min(dt * 7, 1);
@@ -243,8 +339,15 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     tvSet.scale.y = Math.max(holoScreen.scale.y, 0.001);
     tvSet.visible = false;   // frameless projection — bezel intentionally hidden
     if (holoScreen.visible && !castingNow) {
-      (holoScreen.material as THREE.MeshBasicMaterial).opacity =
-        0.85 + 0.12 * Math.sin(t * 19) + 0.03 * Math.sin(t * 5.1);
+      if (tvChannel === 0) {
+        // CRT: subtle brightness flicker (real cathode-ray bulb, not hologram)
+        (holoScreen.material as THREE.MeshBasicMaterial).opacity =
+          0.92 + 0.04 * Math.sin(t * 9.1) + 0.02 * Math.sin(t * 2.3);
+      } else {
+        // hologram channels: original pulse
+        (holoScreen.material as THREE.MeshBasicMaterial).opacity =
+          0.85 + 0.12 * Math.sin(t * 19) + 0.03 * Math.sin(t * 5.1);
+      }
     } else if (castingNow) {
       // gentle projection flicker on top of the 0.78 baseline so the cast
       // doesn't read as a flat opaque panel
@@ -252,18 +355,34 @@ export function buildProps(ctx: EngineCtx): PropsRig {
         0.78 + 0.05 * Math.sin(t * 12.3) + 0.02 * Math.sin(t * 3.7);
     }
   });
+  /** Channel 0 (CRT) is a real monitor → solid-ish, occludes the city. Other
+   * channels stay additive holograms (their content is sparse so partial
+   * transparency reads as "floating projection"). */
+  const applyChannelBlending = (): void => {
+    if (castingNow) return;     // cast() / stopCast() manage blending themselves
+    if (tvChannel === 0) {
+      screenMat.blending = THREE.NormalBlending;
+      screenMat.opacity = 0.92;
+      screenMat.color.setHex(0xffffff);
+    } else {
+      screenMat.blending = THREE.AdditiveBlending;
+      screenMat.opacity = 0.95;
+      screenMat.color.setHex(0xffffff);
+    }
+    screenMat.needsUpdate = true;
+  };
+  // initial: boot in CRT mode
+  applyChannelBlending();
+
   const cycleChannel = () => {
     if (castingNow) return '點播中';
     tvChannel = (tvChannel + 1) % 4;
-    if (tvChannel === 0) {
-      tvScaleTarget = 0;
-      (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(0xff3344);
-    } else {
-      holoScreen.visible = true;
-      tvScaleTarget = 1;
-      (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(0x39ff88);
-    }
-    drawTV();
+    holoScreen.visible = true;
+    tvScaleTarget = 1;
+    applyChannelBlending();
+    const ledHue = tvChannel === 0 ? 0x5af2ff : 0x39ff88;
+    (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(ledHue);
+    drawTV(0);
     return tvNames[tvChannel];
   };
 
