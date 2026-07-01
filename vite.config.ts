@@ -1,5 +1,4 @@
 import { defineConfig, type Plugin } from 'vite';
-import react from '@vitejs/plugin-react';
 import { writeFileSync, existsSync, unlinkSync, readFileSync, readdirSync } from 'fs';
 import { execFile } from 'child_process';
 import { homedir } from 'os';
@@ -279,7 +278,7 @@ function beacon(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), beacon()],
+  plugins: [beacon()],
   server: { host: true, port: 5173 },
   build: { target: 'es2022', sourcemap: true },
 });
