@@ -1,5 +1,7 @@
 # NEON/2077 — Cyberpunk Room
 
+> In-app the room is titled **NEON LOFT** (see the boot screen and window title).
+
 A first-person cyberpunk room simulator that runs in your browser.
 Walk around a neon-lit loft, look out over a living holographic city,
 and interact with the room: light the mosaic lanterns, flip CRT TV
@@ -55,7 +57,9 @@ npm run build     # typecheck + production build
 Every bundled third-party asset (Polyhaven CC0 models and textures,
 Wikimedia Commons images, The Met open-access art, CC-licensed video
 clips) is recorded with source, fetch date, and license in
-[`THIRD_PARTY_ASSETS.md`](THIRD_PARTY_ASSETS.md).
+[`THIRD_PARTY_ASSETS.md`](THIRD_PARTY_ASSETS.md). The CC-BY-SA Wikimedia
+photos are credited in the in-app credits panel (top-right **Credits**
+button).
 
 ## License
 

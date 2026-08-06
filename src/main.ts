@@ -24,6 +24,7 @@ import { saveOverride } from './engine/quality';
 import { buildVolumetric } from './engine/volumetric';
 import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
 import { t, mountLangToggle } from './lib/i18n';
+import { mountCredits } from './lib/credits';
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -1180,6 +1181,8 @@ async function boot() {
 
   // mount language toggle button (top-right corner)
   mountLangToggle();
+  // mount credits / attribution panel button (left of the language toggle)
+  mountCredits();
 
   // hide boot screen
   step(1.0);

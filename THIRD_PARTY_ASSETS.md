@@ -77,6 +77,13 @@ The Met's Open Access program releases >470,000 images under CC0:
 | Various artworks (Hokusai, Hiroshige, Klimt, Van Gogh, Monet, Cezanne search results) | `public/assets/textures/mosaic_art/met-*.png` | 2026-06-12 | <https://collectionapi.metmuseum.org> (live search API; images are CC0 only when the `isPublicDomain` flag is true on the object record) |
 | Rotating gallery frames (paintings cycling on wall art) | runtime fetch in `props.ts` | continuous | same API as above |
 
+The `met-*` filenames are **internal codenames, not the artwork's author**
+(e.g. `met-vangogh.png` is actually *The Outer Harbor of Brest* by Henri
+Joseph van Blarenberghe, `met-monet.png` is *The Forest in Winter at Sunset*
+by Théodore Rousseau). The real titles and artists are recorded in
+`public/assets/textures/mosaic_art/manifest.json` and surfaced in the
+in-app credits panel.
+
 ## Project Gutenberg (Public Domain)
 
 Project Gutenberg releases pre-1928 US public-domain books. The in-game

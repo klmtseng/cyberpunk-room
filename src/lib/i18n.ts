@@ -431,6 +431,22 @@ const dict: Record<Lang, Record<string, string>> = {
 
     // ── lang toggle ──
     'lang.toggle': 'EN',
+
+    // ── credits panel ──
+    'credits.btn': '授權',
+    'credits.title': '素材授權與致謝',
+    'credits.close': '關閉 (ESC)',
+    'credits.intro': '本作品內含以下第三方素材,依各自授權條款使用並致謝。',
+    'credits.sec.wikimedia': 'Wikimedia Commons 照片 (CC-BY-SA)',
+    'credits.sec.wikimedia.note': '以下照片經裁切與夜色調整後貼圖使用,原始檔案與攝影師致謝見各 Commons 檔案頁。公開部署須保持 CC-BY-SA 相容。',
+    'credits.sec.video': 'Wikimedia Commons 影片 (CC-BY / 公有領域)',
+    'credits.sec.cc0': 'Polyhaven 與 ambientCG 模型/材質 (CC0)',
+    'credits.sec.cc0.note': 'CC0 無需署名,仍列出以誌來源。',
+    'credits.sec.met': '大都會博物館 Open Access 藝術品 (CC0)',
+    'credits.sec.met.note': '檔名 (met-*) 為內部代號,非作品作者;下方為實際作品名與作者。',
+    'credits.met.filename': '檔名',
+    'credits.met.work': '作品與作者',
+    'credits.full': '完整清單(含擷取日期、來源腳本)見程式庫的 THIRD_PARTY_ASSETS.md。',
   },
 
   en: {
@@ -855,6 +871,22 @@ const dict: Record<Lang, Record<string, string>> = {
 
     // ── lang toggle ──
     'lang.toggle': '中',
+
+    // ── credits panel ──
+    'credits.btn': 'Credits',
+    'credits.title': 'Asset Credits & Licenses',
+    'credits.close': 'Close (ESC)',
+    'credits.intro': 'This project bundles the third-party assets below, used and credited under their respective licenses.',
+    'credits.sec.wikimedia': 'Wikimedia Commons photos (CC-BY-SA)',
+    'credits.sec.wikimedia.note': 'Each photo is cropped and night-shifted before use. Original files and photographer credits live on each Commons file page. Public deployment must stay CC-BY-SA compatible.',
+    'credits.sec.video': 'Wikimedia Commons video clips (CC-BY / public domain)',
+    'credits.sec.cc0': 'Polyhaven & ambientCG models/textures (CC0)',
+    'credits.sec.cc0.note': 'CC0 requires no attribution; listed here to record the source.',
+    'credits.sec.met': 'The Metropolitan Museum of Art Open Access artworks (CC0)',
+    'credits.sec.met.note': 'Filenames (met-*) are internal codenames, not the artists. Actual titles and artists are below.',
+    'credits.met.filename': 'Filename',
+    'credits.met.work': 'Work & artist',
+    'credits.full': 'Full manifest (fetch dates, source scripts) is in THIRD_PARTY_ASSETS.md in the repository.',
   },
 };
 
