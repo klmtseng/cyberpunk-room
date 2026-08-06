@@ -23,6 +23,7 @@ import { RoomState, type DeviceDef } from './state/room_state';
 import { saveOverride } from './engine/quality';
 import { buildVolumetric } from './engine/volumetric';
 import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
+import { t, mountLangToggle } from './lib/i18n';
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -111,10 +112,7 @@ async function boot() {
   if (IS_TOUCH) {
     document.body.classList.add('touch');
     // Swap the desktop hint text — touch users don't have WASD / Shift / E
-    lockHint.innerHTML = '點任意處進入 NEON LOFT<br/>'
-      + '<span class="k">左下搖桿</span> 移動 · '
-      + '<span class="k">滑動</span> 視角 · '
-      + '<span class="k">點一下</span> 互動';
+    lockHint.innerHTML = t('lock.touch') + '<br/>' + t('lock.touch.keys');
   }
   controls.onLockChange(() => {
     lockHint.classList.toggle('gone', controls.isLocked);
@@ -205,16 +203,16 @@ async function boot() {
   const formatAuditReport = (): string => {
     const issues = runPlacementAudit();
     if (issues.length === 0) {
-      return '> 物件配置稽核 ✓ 全部通過 (沒有埋牆 / 浮空 / 重大重疊)';
+      return t('audit.pass');
     }
-    const head = `> 物件配置稽核 — 共發現 ${issues.length} 項異常:`;
+    const head = t('audit.head.prefix') + issues.length + t('audit.head.suffix');
     const tally: Record<string, number> = {};
     for (const i of issues) tally[i.kind] = (tally[i.kind] ?? 0) + 1;
     const summary = Object.entries(tally).map(([k, v]) => `${k}=${v}`).join(' · ');
     // Show up to 18 entries; truncate the rest with a footer
     const rows = issues.slice(0, 18).map((i) => `  [${i.kind}] ${i.name}  ${i.detail}`);
     const footer = issues.length > 18
-      ? `  …還有 ${issues.length - 18} 項。完整清單在瀏覽器 console: window.neon.audit()` : '';
+      ? t('audit.more.prefix') + (issues.length - 18) + t('audit.more.suffix') : '';
     return [head, '  ' + summary, '', ...rows, footer].filter(Boolean).join('\n');
   };
 
@@ -281,9 +279,12 @@ async function boot() {
   }).then((l) => {
     lantern = l;
     ctx.scene.add(l.group);
-    interact.add(l.hit, l.isOn() ? '熄滅馬賽克燈籠' : '點亮馬賽克燈籠', () => {
+    interact.add(l.hit, l.isOn() ? t('prompt.barLantern.on') : t('prompt.barLantern.off'), () => {
       const on = l.toggle();
-      interact.flash(on ? '🪔 馬賽克燈籠點亮 — 彩繪玻璃' : '🪔 燈籠熄滅');
+      interact.flash(on ? t('flash.barLantern.on') : t('flash.barLantern.off'));
+      // update prompt label after toggle
+      const entry = (interact as any).targets?.find?.((x: any) => x.object === l.hit);
+      if (entry) entry.prompt = on ? t('prompt.barLantern.on') : t('prompt.barLantern.off');
     }, 2.4);
   }).catch((e) => console.warn('[lantern] load failed', e));
 
@@ -299,13 +300,13 @@ async function boot() {
     deskLantern = l;
     ctx.scene.add(l.group);
     const promptFor = (s: string): string =>
-      s === 'off' ? '亮一級' : s === 'dim' ? '亮二級' : '熄滅';
-    interact.add(l.hit, '土耳其檯燈 — 切換亮度', () => {
+      s === 'off' ? t('prompt.deskLantern.off') : s === 'dim' ? t('prompt.deskLantern.dim') : t('prompt.deskLantern.bright');
+    interact.add(l.hit, t('prompt.deskLantern'), () => {
       const newLevel = l.cycle();
-      const labelZh = newLevel === 'off' ? '熄滅'
-        : newLevel === 'dim' ? '微亮 (氛圍)'
-        : '明亮';
-      interact.flash(`💡 桌燈 → ${labelZh},再按一次:${promptFor(newLevel)}`);
+      const label = newLevel === 'off' ? t('flash.deskLantern.off')
+        : newLevel === 'dim' ? t('flash.deskLantern.dim')
+        : t('flash.deskLantern.bright');
+      interact.flash(`${t('flash.deskLantern.prefix')} ${label},${t('flash.deskLantern.next')}${promptFor(newLevel)}`);
     }, 2.4);
   }).catch((e) => console.warn('[deskLantern] load failed', e));
 
@@ -319,9 +320,9 @@ async function boot() {
   }).then((m) => {
     mosaic = m;
     ctx.scene.add(m.group);
-    interact.add(m.hit, '翻牌馬賽克 — 換一幅', () => {
+    interact.add(m.hit, t('prompt.mosaic'), () => {
       const label = m.reveal();
-      interact.flash(`🖼 馬賽克牆 → ${label}`);
+      interact.flash(`${t('flash.mosaic.prefix')} ${label}`);
       ambience.blip(720); ambience.blip(540);
     }, 3.4);
   }).catch((e) => console.warn('[mosaic] load failed', e));
@@ -413,15 +414,15 @@ async function boot() {
     controls.enabled = true;
     controls.clearKeys();
     interact.enabled = true;
-    interact.flash('離開街機 — 下次再來破紀錄');
+    interact.flash(t('flash.arcade.leave'));
   };
-  interact.add(arcade.screen, '投幣開玩 NEON BREAKER', () => {
+  interact.add(arcade.screen, t('prompt.arcade.screen'), () => {
     if (mode !== 'play' || arcade.isActive) return;
     controls.enabled = false;
     interact.enabled = false;
     arcade.start();
   }, 2.8);
-  interact.add(arcade.shell, '投幣開玩 NEON BREAKER', () => {
+  interact.add(arcade.shell, t('prompt.arcade.shell'), () => {
     if (mode !== 'play' || arcade.isActive) return;
     controls.enabled = false;
     interact.enabled = false;
@@ -520,7 +521,7 @@ async function boot() {
     // when the player has parked the camera and is looking out
     if (cinemaOn) setCinema(false);
     cinemaSitGrace = 0;
-    interact.flash('起身');
+    interact.flash(t('flash.stand'));
   };
   window.addEventListener('keydown', (e) => {
     if (seated && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'Space'].includes(e.code)) {
@@ -531,6 +532,8 @@ async function boot() {
 
   // ---------- lighting moods ----------
   // multipliers: [ambient, hemi, perFixture[0..6]] — fixture order matches lighting.ts
+  // Names are stored as i18n keys (mood.*); the 'zh' values are used as state IDs
+  // in RoomState so the share URL remains language-neutral.
   const MOODS: Array<{ name: string; amb: number; hemi: number; fix: number[] }> = [
     { name: '標準', amb: 1, hemi: 1, fix: [1, 1, 1, 1, 1, 1, 1] },
     { name: '閱讀', amb: 1.35, hemi: 1.2, fix: [1.7, 0.5, 1.4, 1.2, 1.5, 0.4, 0.5] },
@@ -538,6 +541,11 @@ async function boot() {
     { name: '派對', amb: 0.55, hemi: 0.5, fix: [0.7, 1.5, 0.6, 1.4, 0.6, 1.6, 1.5] },
     { name: '全暗', amb: 0.15, hemi: 0.12, fix: [0, 0.25, 0, 0.2, 0, 0.3, 0.25] },
   ];
+  // Map zh mood name → i18n display label
+  const MOOD_I18N: Record<string, string> = {
+    '標準': 'mood.standard', '閱讀': 'mood.reading',
+    '影院': 'mood.cinema', '派對': 'mood.party', '全暗': 'mood.dark',
+  };
   let moodIdx = 0;
   const baseColors = lights.fixtures.map((f) => f.color.clone());
   const applyMood = () => {
@@ -594,18 +602,18 @@ async function boot() {
       if (dest === 'wall') {
         // route the same stream to the mosaic wall instead of the holo TV
         if (props.tv.isCasting()) props.tv.stopCast();
-        if (!mosaic) return '⛔ 馬賽克牆尚未載入';
+        if (!mosaic) return t('flash.cast.wall.fail');
         mosaic.castExternal(castVideo, `YT://${id}`);
-        interact.flash('📡 投影到馬賽克牆 — 28×5 LED 面板');
-        return '📡 已投影到馬賽克牆 — 回廚房看';
+        interact.flash(t('flash.cast.wall'));
+        return t('flash.cast.wall.done');
       }
       // default: holo TV in the living room
       if (mosaic?.isTV()) mosaic.exitTV();
       props.tv.cast(castVideo);
-      interact.flash('📽 投影展開 — 回客廳看吧,影片浮在半空');
-      return '📽 已投影到客廳 — ESC 出去邊走邊看';
+      interact.flash(t('flash.cast.tv'));
+      return t('flash.cast.tv.done');
     } catch (err) {
-      return `⛔ 投影失敗:${String(err).slice(0, 80)}`;
+      return `${t('flash.cast.fail.prefix')}${String(err).slice(0, 80)}`;
     }
   };
 
@@ -618,8 +626,8 @@ async function boot() {
     toggleCurtain: () => props.curtain.toggle(),
     cycleHolo: () => props.holo.cycle(),
     toggleLantern: () => lantern?.toggle() ?? false,
-    cycleDeskLantern: () => deskLantern?.cycle() ?? '(未載入)',
-    cycleMosaic: () => mosaic?.reveal() ?? '(未載入)',
+    cycleDeskLantern: () => deskLantern?.cycle() ?? t('rpc.not.loaded'),
+    cycleMosaic: () => mosaic?.reveal() ?? t('rpc.not.loaded'),
     cycleHoloTint: () => props.tv.cycleHoloTint(),
     toggleCounterPendants: () => props.counterPendants.toggle(),
     toggleDND: () => toggleDND(),
@@ -628,9 +636,9 @@ async function boot() {
     togglePlanView: () => floorPlan.toggle(),
     runAudit: () => formatAuditReport(),
     mosaicTV: (arg?: string) => {
-      if (!mosaic) return '(未載入)';
+      if (!mosaic) return t('rpc.not.loaded');
       if (arg === 'off' || arg === 'stop') {
-        return mosaic.exitTV() ? '電視模式關閉,回到藝廊輪播' : '不在電視模式';
+        return mosaic.exitTV() ? t('rpc.tv.exit.ok') : t('rpc.tv.exit.noop');
       }
       // entering TV: one VideoTexture at a time on this iGPU — pause the
       // city ads + holo TV cast so we don't fight for decoding bandwidth
@@ -666,7 +674,7 @@ async function boot() {
       const restore = rainValue;
       rain.setIntensity(restore * 0.4);
       window.setTimeout(() => rain.setIntensity(restore), 250);
-      return '⚡ 閃電 + 滾雷,雨聲短暫減弱';
+      return t('flash.thunder');
     },
     setCinema: (on) => setCinema(on),
     isCinemaOn: () => cinemaOn,
@@ -682,7 +690,7 @@ async function boot() {
     // CyberOS is a DOM overlay; the WebXR compositor hides DOM in immersive
     // sessions. Block jack-in and surface a brief toast instead.
     if (ctx.renderer.xr.isPresenting) {
-      interact.flash('⏏ CyberOS 在 VR 暫不可用 (DOM 介面)', 2400);
+      interact.flash(t('flash.cyberos.vr'), 2400);
       return;
     }
     mode = 'enter-os';
@@ -727,32 +735,32 @@ async function boot() {
   }
 
   // ---------- register interactions ----------
-  interact.add(room.monitorPlane, '接入 CyberOS', enterOS, 3.0);
-  interact.add(props.tv.mesh, '空間投影', () => {
+  interact.add(room.monitorPlane, t('prompt.monitor'), enterOS, 3.0);
+  interact.add(props.tv.mesh, t('prompt.tv'), () => {
     if (props.tv.isCasting()) {
       stopCast();
-      interact.flash('📽 投影結束');
+      interact.flash(t('flash.tv.stop'));
     } else {
-      interact.flash(`📽 投影:${String(roomState.advance('tv'))}`);
+      interact.flash(`${t('flash.tv.cast')}${String(roomState.advance('tv'))}`);
     }
   }, 3.0);
-  interact.add(props.tv.screen, '切換頻道', () => {
+  interact.add(props.tv.screen, t('prompt.tv.screen'), () => {
     if (props.tv.isCasting()) {
-      if (castVideo.paused) { void castVideo.play(); interact.flash('▶ 續播'); }
-      else { castVideo.pause(); interact.flash('⏸ 暫停'); }
+      if (castVideo.paused) { void castVideo.play(); interact.flash(t('flash.tv.resume')); }
+      else { castVideo.pause(); interact.flash(t('flash.tv.pause')); }
     } else {
-      interact.flash(`📽 投影:${String(roomState.advance('tv'))}`);
+      interact.flash(`${t('flash.tv.cast')}${String(roomState.advance('tv'))}`);
     }
   }, 4.5);
-  interact.add(props.neonSign.mesh, '切換霓虹色', () => interact.flash(`✨ ${String(roomState.advance('neon'))}`), 4.5);
-  interact.add(props.recordPlayer.mesh, '播放黑膠 (合成器墊音)', () => {
+  interact.add(props.neonSign.mesh, t('prompt.neon'), () => interact.flash(`✨ ${String(roomState.advance('neon'))}`), 4.5);
+  interact.add(props.recordPlayer.mesh, t('prompt.record'), () => {
     const on = ambience.togglePad();
     props.recordPlayer.setSpin(on);
-    interact.flash(on ? '♫ 黑膠轉動中…' : '黑膠停止');
+    interact.flash(on ? t('flash.record.on') : t('flash.record.off'));
   }, 2.4);
-  interact.add(room.windowPlane, '切換雨勢', () => {
+  interact.add(room.windowPlane, t('prompt.window'), () => {
     setWeather(weatherLevel === 'off' ? 'light' : weatherLevel === 'light' ? 'heavy' : 'off');
-    interact.flash(`🌧 雨勢:${weatherLevel}`);
+    interact.flash(`${t('flash.rain.prefix')}${weatherLevel}`);
   }, 3.0);
   // ------- drink / drunk state -------
   // Bar drink raises drunkLevel; the update loop applies a head-roll sway +
@@ -771,12 +779,12 @@ async function boot() {
     + 'opacity:0;transition:opacity .6s;z-index:39;';
   document.body.appendChild(drunkVignette);
 
-  interact.add(barProxy, '調一杯酒', () => {
+  interact.add(barProxy, t('prompt.bar'), () => {
     props.bar.pulse();
     drunkLevel = Math.min(1.8, drunkLevel + 0.55);
-    interact.flash('🍸 NEON COLA + 合成龍舌蘭…乾杯!');
+    interact.flash(t('flash.bar'));
   }, 2.6);
-  interact.add(sofaProxy, '坐下 (電動沙發)', () => {
+  interact.add(sofaProxy, t('prompt.sofa'), () => {
     if (seated) return;
     seated = true;
     reclined = false;
@@ -793,7 +801,7 @@ async function boot() {
     seatBase.set(0.4, 1.18, 2.0);
     ctx.camera.position.copy(seatBase);
     controls.setOrientation(Math.PI, -0.04);
-    interact.flash('已就座 — 滑鼠左右看 · [R] 椅背 · [M] 按摩 · 移動鍵起身', 3600);
+    interact.flash(t('flash.sofa.sit'), 3600);
     // arm cinema auto-enable: 1.2s grace, then fade in DOF + letterbox
     cinemaSitGrace = 1.2;
   }, 2.8);
@@ -804,37 +812,37 @@ async function boot() {
       seatBase.set(0.4, reclined ? 1.02 : 1.18, reclined ? 1.75 : 2.0);
       ctx.camera.position.copy(seatBase);
       controls.setOrientation(Math.PI, reclined ? 0.34 : -0.04);
-      interact.flash(reclined ? '⚙ 椅背放平 — 看看高樓上的雨' : '⚙ 椅背豎直');
+      interact.flash(reclined ? t('flash.recline.on') : t('flash.recline.off'));
     }
     if (e.code === 'KeyM') {
       massageT = massageT > 0 ? 0 : 8;
-      interact.flash(massageT > 0 ? '〰 按摩模式 8 秒' : '按摩停止');
+      interact.flash(massageT > 0 ? t('flash.massage.on') : t('flash.massage.off'));
     }
   });
-  interact.add(bedProxy, '小睡片刻', () => {
+  interact.add(bedProxy, t('prompt.bed'), () => {
     fade.style.opacity = '1';
     const wasDrunk = drunkLevel > 0.05;
     drunkLevel = 0;
     window.setTimeout(() => {
       fade.style.opacity = '0';
-      interact.flash(wasDrunk
-        ? '…睡了一會兒,酒醒了'
-        : '…睡了一會兒,窗外的雨還沒停');
+      interact.flash(wasDrunk ? t('flash.bed.drunk') : t('flash.bed.normal'));
     }, 1600);
   }, 2.8);
-  interact.add(props.lightPanel, '燈光情境', () => {
-    interact.flash(`💡 燈光:${cycleLights()}`);
+  interact.add(props.lightPanel, t('prompt.lights'), () => {
+    const moodName = cycleLights();
+    const moodKey = MOOD_I18N[moodName] ?? moodName;
+    interact.flash(`${t('flash.lights.prefix')}${t(moodKey)}`);
   }, 2.4);
-  interact.add(props.counterPendants.hit, '吧檯柔光', () => {
+  interact.add(props.counterPendants.hit, t('prompt.pendants'), () => {
     const on = props.counterPendants.toggle();
-    interact.flash(on ? '🪔 吧檯柔光開啟 — 配馬賽克牆比較不刺眼' : '🪔 吧檯柔光熄滅 — 高對比模式');
+    interact.flash(on ? t('flash.pendants.on') : t('flash.pendants.off'));
   }, 3.0);
-  interact.add(props.holo.base, '全息投影', () => {
-    interact.flash(`🔮 投影頻道:${props.holo.cycle()}`);
+  interact.add(props.holo.base, t('prompt.holo'), () => {
+    interact.flash(`${t('flash.holo.prefix')}${props.holo.cycle()}`);
   }, 2.6);
-  interact.add(props.curtain.panel, '電動窗簾', () => {
+  interact.add(props.curtain.panel, t('prompt.curtain'), () => {
     const closing = props.curtain.toggle();
-    interact.flash(closing ? '🪟 窗簾下降中…' : '🪟 窗簾上升中…');
+    interact.flash(closing ? t('flash.curtain.closing') : t('flash.curtain.opening'));
   }, 2.4);
   // open an OS app in place (no desk camera tween)
   const enterApp = (openFn: () => void) => {
@@ -851,11 +859,11 @@ async function boot() {
     openFn();
   };
   // bookshelf → 藏書閣 reader; each titled spine opens exactly that book
-  interact.add(room.bookshelf, '藏書架', () => {
-    interact.flash('📖 看準一本書的書脊按 E,把它取下來讀');
+  interact.add(room.bookshelf, t('prompt.bookshelf'), () => {
+    interact.flash(t('flash.bookshelf'));
   }, 3.0);
   for (const { mesh, book } of room.titledBooks) {
-    interact.add(mesh, `取下《${book.title}》`, () => {
+    interact.add(mesh, `${t('prompt.book.prefix')}${book.title}${t('prompt.book.suffix')}`, () => {
       if (mode !== 'play' || reader.isOpen) return;
       controls.enabled = false;
       interact.enabled = false;
@@ -863,51 +871,51 @@ async function boot() {
     }, 2.4);
   }
   // shard trays: the art shard now re-curates every wall frame
-  interact.add(room.shardTrayArt, '讀取碎片:重新策展 (全部換畫)', () => {
+  interact.add(room.shardTrayArt, t('prompt.shardArt'), () => {
     props.art.next();
-    interact.flash('🖼 已向大都會博物館請求新一批館藏…');
+    interact.flash(t('flash.shardArt'));
   }, 2.4);
-  interact.add(room.shardTrayAudio, '讀取碎片:家庭錄音檔案', () => enterApp(() => os.openViola()), 2.4);
-  interact.add(room.devlogShard, '??? 金色碎片', () => enterApp(() => os.openDevlog()), 2.2);
+  interact.add(room.shardTrayAudio, t('prompt.shardAudio'), () => enterApp(() => os.openViola()), 2.4);
+  interact.add(room.devlogShard, t('prompt.devlogShard'), () => enterApp(() => os.openDevlog()), 2.2);
 
   // wall frames: E swaps that frame for another painting
   for (const f of props.art.frames) {
-    interact.add(f, '換一幅畫', () => {
+    interact.add(f, t('prompt.frame'), () => {
       props.art.next();
-      interact.flash('🖼 重新策展中…');
+      interact.flash(t('flash.frame'));
     }, 3.2);
   }
 
   // bathroom
-  interact.add(room.bathroom.door, '浴室門', () => {
-    interact.flash(room.bathroom.toggleDoor() ? '🚪 門開啟' : '🚪 門關閉');
+  interact.add(room.bathroom.door, t('prompt.bathDoor'), () => {
+    interact.flash(room.bathroom.toggleDoor() ? t('flash.bathDoor.open') : t('flash.bathDoor.close'));
   }, 2.6);
-  interact.add(room.bathroom.toilet, '沖水', () => {
+  interact.add(room.bathroom.toilet, t('prompt.toilet'), () => {
     ambience.flush();
-    interact.flash('🚽 嘩——');
+    interact.flash(t('flash.toilet'));
   }, 2.0);
-  interact.add(room.bathroom.mirror, '智慧鏡', () => {
-    interact.flash('🪞 鏡面掃描:外觀評分 SSS — 今晚也很賽博朋克');
+  interact.add(room.bathroom.mirror, t('prompt.mirror'), () => {
+    interact.flash(t('flash.mirror'));
   }, 2.2);
-  interact.add(room.bathroom.shower, '淋浴', () => {
+  interact.add(room.bathroom.shower, t('prompt.shower'), () => {
     const on = room.bathroom.toggleShower();
     ambience.shower(on);
-    interact.flash(on ? '🚿 熱水 + 蒸氣中…' : '🚿 關閉');
+    interact.flash(on ? t('flash.shower.on') : t('flash.shower.off'));
   }, 2.4);
-  interact.add(room.washer, '洗衣', () => {
+  interact.add(room.washer, t('prompt.washer'), () => {
     (room.washer.userData.startWash as () => void)();
-    interact.flash('🌀 洗衣行程 20 秒 — 滾筒運轉中');
+    interact.flash(t('flash.washer'));
   }, 2.2);
   // speakers double as one-key BGM control: rain outside, music inside —
   // no need to jack into the PC once a station is loaded
   for (const sp of props.speakers) {
-    interact.add(sp, '音樂 播放/暫停', () => {
+    interact.add(sp, t('prompt.speaker'), () => {
       const st = os.ytToggle();
       if (st === 'offline') {
-        interact.flash('🎧 還沒載入電台 — 幫你開 NeuroSound');
+        interact.flash(t('flash.speaker.load'));
         enterApp(() => os.openNeuroSound());
       } else {
-        interact.flash(st === 'paused' ? '⏸ 音樂暫停' : '▶ 音樂繼續 — 配著窗外的雨剛剛好');
+        interact.flash(st === 'paused' ? t('flash.speaker.pause') : t('flash.speaker.play'));
       }
     }, 2.6);
   }
@@ -929,60 +937,55 @@ async function boot() {
   const irisSay = (): string => {
     const now = new Date();
     const lines: string[] = [
-      `現在時間 ${now.getHours()} 點 ${now.getMinutes()} 分。夜城的雨,下得比你的截止日還準時。`,
+      t('iris.time.prefix') + now.getHours() + t('iris.time.h') + now.getMinutes() + t('iris.time.m') + t('iris.0'),
       lastWeatherText
-        ? `外面的真實世界:${lastWeatherText}。窗外這場雨倒是我們自己選的。`
-        : '定位資料還沒回來,不過依我看,哪裡都在下雨。',
-      '你的咖啡因攝取量已超標。要我假裝沒看到,還是再煮一杯?',
-      '夜貓今天換了三個睡覺位置。牠的日程比你充實。',
-      '提醒:你已經盯著城市看了一陣子了。這不是壞事,我只是記錄一下。',
-      '雨太大了嗎?我把它調小一點。…好了。',
+        ? t('iris.1.a') + lastWeatherText + t('iris.1.b')
+        : t('iris.1.no'),
+      t('iris.2'),
+      t('iris.3'),
+      t('iris.4'),
+      t('iris.5'),
     ];
     irisLineIdx = (irisLineIdx + 1) % lines.length;
     const line = lines[irisLineIdx];
-    if (line.startsWith('雨太大了嗎')) setWeather('light');
+    // iris.5 triggers rain dial-down regardless of language
+    if (irisLineIdx === 5) setWeather('light');
     props.assistant.setTalk(4);
     speak(line);
     return line;
   };
-  interact.add(props.assistant.base, '呼叫 虹 // IRIS', () => {
-    interact.flash(`🟣 虹:「${irisSay()}」`, 5200);
+  interact.add(props.assistant.base, t('prompt.iris'), () => {
+    interact.flash(`${t('flash.iris.prefix')}${irisSay()}${t('flash.iris.suffix')}`, 5200);
   }, 3.0);
 
   // home completion round: cat, coffee, entry door, wardrobe
-  interact.add(props.cat.body, '摸摸夜貓', () => {
+  interact.add(props.cat.body, t('prompt.cat'), () => {
     props.cat.pet();
     ambience.purr();
-    interact.flash('🐈‍⬛ 夜貓:呼嚕嚕嚕…(尾巴拍了拍)');
+    interact.flash(t('flash.cat'));
   }, 2.2);
-  interact.add(props.coffee.machine, '沖一杯咖啡', () => {
+  interact.add(props.coffee.machine, t('prompt.coffee'), () => {
     if (props.coffee.brew()) {
       ambience.brewSound();
-      interact.flash('☕ 合成豆研磨中…(7 秒)');
+      interact.flash(t('flash.coffee.brewing'));
     } else {
-      interact.flash('☕ 已經在煮了,稍安勿躁');
+      interact.flash(t('flash.coffee.busy'));
     }
   }, 2.4);
-  interact.add(room.entry.door, '大門', () => {
-    interact.flash(room.entry.toggle() ? '🚪 安全鎖解除 — 門開' : '🚪 門關閉,上鎖');
+  interact.add(room.entry.door, t('prompt.door'), () => {
+    interact.flash(room.entry.toggle() ? t('flash.door.open') : t('flash.door.close'));
   }, 2.8);
-  interact.add(room.entry.package, '撿起包裹', () => {
+  interact.add(room.entry.package, t('prompt.package'), () => {
     room.entry.setDelivered(false);
-    const loot = [
-      '📦 NEON COLA 兌換箱 — 裡面是 24 罐酸雨檸檬口味',
-      '📦 鄰居誤送的義體目錄 — 折頁停在「夜視瞳 v2」那頁',
-      '📦 一束塑膠花,附卡片:「替我澆水 — K」',
-      '📦 二手書《如何與你的智慧家居和平共處》',
-      '📦 空箱子。只有一張字條:「他們在看。」',
-    ];
+    const loot = [0, 1, 2, 3, 4].map((i) => t(`package.${i}`));
     interact.flash(loot[Math.floor(Math.random() * loot.length)], 4200);
   }, 2.4);
-  interact.add(room.wardrobe.mesh, '換裝', () => {
-    interact.flash(`🧥 義體外裝 → ${room.wardrobe.cycleOutfit()}(去浴室照照鏡子)`, 3200);
+  interact.add(room.wardrobe.mesh, t('prompt.wardrobe'), () => {
+    interact.flash(`${t('flash.wardrobe.prefix')} ${room.wardrobe.cycleOutfit()} ${t('flash.wardrobe.suffix')}`, 3200);
   }, 2.6);
   // bedside star projector: cycle off / 賽博 / 暖光 / 古典
-  interact.add(room.starProjector.hit, '床頭星空儀', () => {
-    interact.flash(`✨ 星空儀 → ${room.starProjector.cycle()}`);
+  interact.add(room.starProjector.hit, t('prompt.projector'), () => {
+    interact.flash(`${t('flash.projector.prefix')} ${room.starProjector.cycle()}`);
   }, 2.0);
   // ------- pickup system -------
   // Aim at a pickable, E to grab — item parents to the camera and follows your
@@ -1006,7 +1009,7 @@ async function boot() {
       origPos: obj.position.clone(),
       origRot: obj.rotation.clone(),
     });
-    interact.add(obj, `拿起 ${name}`, () => {
+    interact.add(obj, `${t('prompt.pickup.prefix')}${name}`, () => {
       if (heldItem) return;
       const p = pickables.get(obj);
       if (!p) return;
@@ -1015,7 +1018,7 @@ async function boot() {
       ctx.camera.add(obj);
       obj.position.copy(HOLD_OFFSET);
       obj.rotation.set(0, 0, 0);
-      interact.flash(`✋ 拿著「${name}」— [F] 放下 · [Q] 放回原位`, 3000);
+      interact.flash(`${t('flash.pickup.held')}${name}${t('flash.pickup.held.suffix')}`, 3000);
     }, 2.0);
   };
 
@@ -1040,24 +1043,22 @@ async function boot() {
       const parentWorldQ = new THREE.Quaternion();
       item.origParent.getWorldQuaternion(parentWorldQ);
       item.obj.quaternion.premultiply(parentWorldQ.invert());
-      interact.flash(`📍 「${item.name}」放在這`);
+      interact.flash(`${t('flash.pickup.drop')}${item.name}${t('flash.pickup.drop.suffix')}`);
     } else {
       // return to original
       ctx.camera.remove(item.obj);
       item.origParent.add(item.obj);
       item.obj.position.copy(item.origPos);
       item.obj.rotation.copy(item.origRot);
-      interact.flash(`↩ 「${item.name}」放回原位`);
+      interact.flash(`${t('flash.pickup.return')}${item.name}${t('flash.pickup.return.suffix')}`);
     }
     heldItem = null;
   });
 
   // smart-fridge peek (E to open; auto-close after 6s)
-  interact.add(room.fridge.hit, '打開冰箱', () => {
+  interact.add(room.fridge.hit, t('prompt.fridge'), () => {
     const open = room.fridge.toggle();
-    interact.flash(open
-      ? '🧊 NEON COLA × 5 + 神秘紫色瓶子 + 鄰居的塑膠花'
-      : '🚪 冰箱關起來');
+    interact.flash(open ? t('flash.fridge.open') : t('flash.fridge.close'));
   }, 2.8);
 
   // Do-Not-Disturb: keypad LED strip by the door doubles as a DND toggle.
@@ -1072,11 +1073,9 @@ async function boot() {
     return dnd;
   };
   const toggleDND = (): boolean => setDND(!dnd);
-  interact.add(room.entry.keypad, '勿擾模式 (DND) 切換', () => {
+  interact.add(room.entry.keypad, t('prompt.dnd'), () => {
     const on = toggleDND();
-    interact.flash(on
-      ? '🔇 勿擾模式 — 門鈴會被靜音,包裹仍在門口累積'
-      : '🔔 接受訪客 — 累積的包裹會在下次門鈴釋出');
+    interact.flash(on ? t('flash.dnd.on') : t('flash.dnd.off'));
   }, 2.4);
 
   // doorbell: a delivery arrives every few minutes
@@ -1093,7 +1092,7 @@ async function boot() {
       }
       ambience.doorbell();
       room.entry.setDelivered(true);
-      interact.flash('🔔 門鈴 — 有人放了東西在門口', 3600);
+      interact.flash(t('flash.doorbell'), 3600);
       pendingDelivery = false;
     } else if (!dnd && pendingDelivery) {
       // DND was just turned off and there's a queued package — release it on
@@ -1101,7 +1100,7 @@ async function boot() {
       pendingDelivery = false;
       ambience.doorbell();
       room.entry.setDelivered(true);
-      interact.flash('🔔 門鈴 — 趁你不在的時候有東西到了', 3600);
+      interact.flash(t('flash.doorbell.missed'), 3600);
     }
   }, 5000);
 
@@ -1112,9 +1111,9 @@ async function boot() {
   // real-world weather for the smart mirror: IP geolocation → open-meteo
   // (both keyless + CORS-friendly); refreshed every 20 minutes
   const WMO_DESC: Array<[number[], string]> = [
-    [[0], '晴'], [[1, 2], '多雲時晴'], [[3], '陰'], [[45, 48], '霧'],
-    [[51, 53, 55, 56, 57], '毛毛雨'], [[61, 63, 65, 66, 67], '雨'],
-    [[71, 73, 75, 77, 85, 86], '雪'], [[80, 81, 82], '陣雨'], [[95, 96, 99], '雷雨'],
+    [[0], t('wmo.clear')], [[1, 2], t('wmo.partly')], [[3], t('wmo.overcast')], [[45, 48], t('wmo.fog')],
+    [[51, 53, 55, 56, 57], t('wmo.drizzle')], [[61, 63, 65, 66, 67], t('wmo.rain')],
+    [[71, 73, 75, 77, 85, 86], t('wmo.snow')], [[80, 81, 82], t('wmo.showers')], [[95, 96, 99], t('wmo.thunderstorm')],
   ];
   const fetchGeo = async (): Promise<{ lat: number; lon: number; label: string; cc: string }> => {
     // geojs first — ip-geo APIs are often on tracker blocklists (Firefox ETP
@@ -1153,7 +1152,10 @@ async function boot() {
         desc,
         humidity: Math.round(Number(cur.relative_humidity_2m)),
       });
-      lastWeatherText = `${geo.label} ${Number(cur.temperature_2m).toFixed(0)} 度,${desc}`;
+      lastWeatherText = t('weather.text')
+        .replace('{city}', geo.label)
+        .replace('{temp}', Number(cur.temperature_2m).toFixed(0))
+        .replace('{desc}', desc);
       // local-language headlines for the mirror feed (dev-server proxy)
       try {
         const news = await (await fetch(`/__news?cc=${encodeURIComponent(geo.cc)}`)).json();
@@ -1175,6 +1177,9 @@ async function boot() {
   // spawn in the living area facing the window/city
   ctx.camera.position.set(-1.5, 1.7, -0.5);
   controls.setOrientation(Math.PI, -0.02);
+
+  // mount language toggle button (top-right corner)
+  mountLangToggle();
 
   // hide boot screen
   step(1.0);
@@ -1218,9 +1223,8 @@ async function boot() {
     el.style.cssText = 'position:fixed;inset:0;z-index:200;display:grid;place-items:center;' +
       'background:#05060a;color:#c8f2ff;text-align:center;font-family:"Share Tech Mono",monospace;';
     el.innerHTML = '<div><div style="color:#ff2bdb;font-size:22px;letter-spacing:.2em">' +
-      'GPU DRIVER INCOMPATIBLE</div><div style="margin-top:14px;font-size:14px;line-height:1.8">' +
-      '此瀏覽器的 GPU 後端無法編譯 shader（常見於 Chrome + 舊款 Intel 內顯）。<br/>' +
-      '請改用 <b style="color:#5af2ff">Firefox</b> 開啟本頁，即可正常遊玩。</div></div>';
+      t('gpu.title') + '</div><div style="margin-top:14px;font-size:14px;line-height:1.8">' +
+      t('gpu.body') + '</div></div>';
     document.body.appendChild(el);
   };
   canvas.addEventListener('webglcontextlost', () => {

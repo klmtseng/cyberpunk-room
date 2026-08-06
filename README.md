@@ -32,6 +32,7 @@ No install, no login. Desktop and mobile (touch supported, WebXR-ready).
 | WASD + mouse | Move / look |
 | E | Interact (lanterns, TV, projector…) |
 | P | Floor plan overlay |
+| EN / 中 button | Toggle language (top-right corner; adds `?lang=en` or `?lang=zh` to URL) |
 
 ## Tech
 

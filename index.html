@@ -96,6 +96,15 @@
     </div>
     <div id="joy"><div id="joynub"></div></div>
     <div id="touchhint">滑動視角 · 點一下互動 · 左下搖桿移動</div>
+    <script type="module">
+      // Apply i18n to static HTML strings before main.ts mounts.
+      import { t, getLang } from '/src/lib/i18n.ts';
+      const hint = document.getElementById('lockhint');
+      if (hint) hint.innerHTML = t('lock.desktop') + '<br/>\n        ' + t('lock.keys');
+      const touchhint = document.getElementById('touchhint');
+      if (touchhint) touchhint.textContent = t('touchhint');
+      document.documentElement.lang = getLang() === 'zh' ? 'zh-Hant' : 'en';
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

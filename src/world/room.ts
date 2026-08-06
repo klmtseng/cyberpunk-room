@@ -3,6 +3,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import type { EngineCtx } from '../engine/renderer';
 import { BOOKS, type Book } from '../lib/books';
 import { buildAdWall } from './ad_wall';
+import { t as i18n } from '../lib/i18n';
 import { buildWindowRainMaterial, type WindowRainHandle } from './shaders/window_rain.glsl';
 
 export interface AABB { min: THREE.Vector3; max: THREE.Vector3; }
@@ -963,9 +964,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
 
   type ProjMode = 'off' | 'cyber' | 'cozy' | 'planet';
   let projMode: ProjMode = 'off';
-  const PROJ_LABELS: Record<ProjMode, string> = {
-    off: '熄滅', cyber: '賽博全息', cozy: '營火暖光', planet: '古典星象',
-  };
+  const PROJ_LABELS = (): Record<ProjMode, string> => ({
+    off: i18n('proj.off'), cyber: i18n('proj.cyber'), cozy: i18n('proj.cozy'), planet: i18n('proj.planet'),
+  });
   const PROJ_TINTS: Record<ProjMode, { lens: number; beam: number }> = {
     off:    { lens: 0x000000, beam: 0x000000 },
     cyber:  { lens: 0x5af2ff, beam: 0x88c8ff },
@@ -980,7 +981,7 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
     projLensMat.color.setHex(tint.lens);
     projRingMat.color.setHex(tint.lens === 0x000000 ? 0x102030 : tint.lens);
     beamMat.color.setHex(tint.beam);
-    return PROJ_LABELS[projMode];
+    return PROJ_LABELS()[projMode];
   };
 
   animated.push((t) => {

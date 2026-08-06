@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Book } from '../lib/books';
+import { t } from '../lib/i18n';
 
 // Hold-a-real-book reading mode: an open book floats in front of the camera,
 // full text laid out on paper pages. A/D or ←/→ flip, E/ESC closes.
@@ -76,14 +77,14 @@ export class BookReader {
     this.idx = 0;
     this.isOpen = true;
     this.group.visible = true;
-    this.drawNotice('擷取書頁中…', book.title);
+    this.drawNotice(t('book.loading'), book.title);
     try {
       const saved = Number(localStorage.getItem(`neonloft.read.${book.id}`) ?? 0);
       if (saved > 0) this.pages = [saved];
       await this.ensure(this.pages[0] + 9000);
       this.render();
     } catch {
-      this.drawNotice('⛔ 圖書館連線失敗', book.title);
+      this.drawNotice(t('book.error'), book.title);
     }
   }
 
@@ -189,7 +190,7 @@ export class BookReader {
     gL.fillText(`${this.book.title} — ${this.book.author}`, MARGIN, PAGE_H - 16);
     gR.font = 'italic 12px Georgia, serif';
     gR.fillStyle = 'rgba(60,50,40,.55)';
-    const foot = endR >= this.total ? '— 全書完 —' : `${pct}%  ·  [A/D] 翻頁  [E] 闔上`;
+    const foot = endR >= this.total ? t('book.footer.read') : `${pct}${t('book.footer.nav')}`;
     gR.fillText(foot, PAGE_W - MARGIN - gR.measureText(foot).width, PAGE_H - 16);
     this.texL.needsUpdate = true;
     this.texR.needsUpdate = true;

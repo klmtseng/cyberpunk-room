@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from '../lib/i18n';
 
 // Top-down "floor plan" overlay drawn on a 2D canvas. Sits inside #hud and is
 // toggled via the `plan` term command (or the P key). Purely additive — never
@@ -166,14 +167,15 @@ export class FloorPlan {
     g.font = '13px "Share Tech Mono", monospace';
     g.fillStyle = '#5af2ff';
     g.shadowColor = '#5af2ff'; g.shadowBlur = 8;
-    g.fillText('FLOOR PLAN ▸ NEON LOFT', 18, 22);
+    g.fillText(t('plan.title'), 18, 22);
     g.shadowBlur = 0;
     g.fillStyle = '#a0c8ff'; g.font = '11px "Share Tech Mono", monospace';
-    g.fillText(`房間 ${this.opts.width.toFixed(1)}m × ${this.opts.depth.toFixed(1)}m  ·  顯示物件 ${this.items.length} 件  ·  P 或 term plan 切回 3D`, 18, 40);
+    g.fillText(`${t('plan.info.prefix')}${this.opts.width.toFixed(1)}${t('plan.info.mid')}${this.opts.depth.toFixed(1)}${t('plan.info.suffix')}${this.items.length}${t('plan.info.end')}`, 18, 40);
     // legend chips
     const chipCats: Category[] = ['wall', 'furniture', 'interactive', 'pickable', 'prop'];
     const chipLabels: Record<Category, string> = {
-      wall: '牆/結構', furniture: '家具', interactive: '可互動', pickable: '可拿取', prop: '雜物',
+      wall: t('plan.legend.wall'), furniture: t('plan.legend.furniture'),
+      interactive: t('plan.legend.interactive'), pickable: t('plan.legend.pickable'), prop: t('plan.legend.prop'),
     };
     let chipX = cw - 18;
     for (let i = chipCats.length - 1; i >= 0; i--) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from '../lib/i18n';
 
 // HOLO-ARCADE: a single cabinet whose shell is a hologram (additive edges +
 // translucent panels) but whose screen plays like a real arcade — neon
@@ -236,9 +237,9 @@ export class HoloArcade {
       g.font = '11px monospace';
       g.fillText(`BEST ${this.best}`, W / 2, 170);
       if (Math.sin(t * 3) > -0.2) {
-        g.fillText(this.state === 'over' ? '[SPACE] 再來一局 · [E] 離開' : '[E] 投幣開玩', W / 2, 205);
+        g.fillText(this.state === 'over' ? '[SPACE] RETRY · [E] EXIT' : '[E] INSERT COIN', W / 2, 205);
       }
-      g.fillText('A/D 移動擋板', W / 2, 228);
+      g.fillText('A/D PADDLE', W / 2, 228);
       g.textAlign = 'left';
     } else {
       // bricks

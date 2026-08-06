@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { EngineCtx } from '../engine/renderer';
+import { t as i18n } from '../lib/i18n';
 
 // Interactive props for the living area: speakers (YouTube spatial anchors),
 // wall TV, record player, color-cycling neon sign, bar dressing.
@@ -92,7 +93,10 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   const tvTex = new THREE.CanvasTexture(tvCanvas);
   tvTex.colorSpace = THREE.SRGBColorSpace;
   let tvChannel = 0; // 0 CRT scan (default), 1 static, 2 ad loop, 3 city spectrum
-  const tvNames = ['CRT 軌道追蹤', '雜訊', '廣告', '城市頻譜'];
+  // Stable IDs used in RoomState/URL — do not translate
+  const tvNames = ['CRT 軌道追蹤', '雜訊', '廣告', '城市頻譜'] as const;
+  // Display labels (translated) for terminal output
+  const tvLabels = () => [i18n('tv.ch.crt'), i18n('tv.ch.noise'), i18n('tv.ch.ad'), i18n('tv.ch.spectrum')];
   // the projector: a slim picture-frame on the wall
   const tv = new THREE.Mesh(
     new THREE.BoxGeometry(0.05, 0.5, 0.72),
@@ -159,12 +163,12 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   let castingNow = false;
   const screenMat = holoScreen.material as THREE.MeshBasicMaterial;
   // 全息色調預設 — 按 'holotint' 終端機指令循環切換
-  const TINT_PRESETS: Array<{ hex: number; label: string }> = [
-    { hex: 0xffffff, label: '無色' },
-    { hex: 0xd8e8ff, label: '淡藍' },
-    { hex: 0xc8e0ff, label: '中藍' },
-    { hex: 0xa8c8ff, label: '深藍' },
-    { hex: 0x88b8f8, label: '全藍' },
+  const TINT_PRESETS: Array<{ hex: number; key: string }> = [
+    { hex: 0xffffff, key: 'tint.none' },
+    { hex: 0xd8e8ff, key: 'tint.light' },
+    { hex: 0xc8e0ff, key: 'tint.mid' },
+    { hex: 0xa8c8ff, key: 'tint.deep' },
+    { hex: 0x88b8f8, key: 'tint.full' },
   ];
   let tintIdx = 2;       // medium-blue default — set in cast() below
   const cycleHoloTint = (): string => {
@@ -174,7 +178,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
       screenMat.color.setHex(p.hex);
       screenMat.needsUpdate = true;
     }
-    return `${p.label} (#${p.hex.toString(16).padStart(6, '0')})`;
+    return `${i18n(p.key)} (#${p.hex.toString(16).padStart(6, '0')})`;
   };
   const cast = (video: HTMLVideoElement) => {
     castTex?.dispose();
@@ -387,16 +391,16 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     const ledHue = tvChannel === 0 ? 0x5af2ff : 0x39ff88;
     (tvLed.material as THREE.MeshStandardMaterial).emissive.setHex(ledHue);
     drawTV(0);
-    return tvNames[tvChannel];
+    return tvLabels()[tvChannel];
   };
   const cycleChannel = () => {
-    if (castingNow) return '點播中';
+    if (castingNow) return i18n('tv.casting');
     return applyChannel((tvChannel + 1) % 4);
   };
   const setChannel = (name: string): string => {
-    if (castingNow) return '點播中';
-    const i = tvNames.indexOf(name);
-    return i >= 0 ? applyChannel(i) : tvNames[tvChannel];
+    if (castingNow) return i18n('tv.casting');
+    const i = (tvNames as readonly string[]).indexOf(name);
+    return i >= 0 ? applyChannel(i) : tvLabels()[tvChannel];
   };
 
   // ---------- record player on a sideboard (back wall of living area) ----------
@@ -579,7 +583,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   mug.position.set(5.55, 0.85, 2.95);   // on desk, front-left of keyboard
   mug.name = 'CoffeeMug';
   group.add(mug);
-  pickables.push({ obj: mug, name: '咖啡杯' });
+  pickables.push({ obj: mug, name: i18n('pick.mug') });
   for (let i = 0; i < 3; i++) {
     const paper = new THREE.Mesh(
       new THREE.PlaneGeometry(0.21, 0.29),
@@ -1012,7 +1016,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   noodle.position.set(0.65, 0.39, 3.45);
   noodle.name = 'NoodleCup';
   group.add(noodle);
-  pickables.push({ obj: noodle, name: '泡麵杯' });
+  pickables.push({ obj: noodle, name: i18n('pick.noodle') });
 
   // small "data shard" on the bedroom dresser — purple glowing chip, pickable
   const dataShard = new THREE.Mesh(
@@ -1025,7 +1029,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
   dataShard.rotation.y = 0.4;
   dataShard.name = 'DataShard';
   group.add(dataShard);
-  pickables.push({ obj: dataShard, name: '紫色資料碎片' });
+  pickables.push({ obj: dataShard, name: i18n('pick.shard') });
 
   // ---------- living wall art: warm hearth + ukiyo wave + master paintings ----------
   // digital fireplace inset below the TV — the warmest pixel in the apartment
@@ -1226,7 +1230,7 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     speakerPositions,
     speakers: speakerBodies,
     tv: {
-      mesh: tv, screen: holoScreen, cycleChannel, setChannel, channelNames: tvNames,
+      mesh: tv, screen: holoScreen, cycleChannel, setChannel, channelNames: tvNames as readonly string[],
       cast, stopCast, isCasting: () => castingNow,
       cycleHoloTint,
     },

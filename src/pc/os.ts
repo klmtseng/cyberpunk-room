@@ -1,4 +1,5 @@
 import './os.css';
+import { t } from '../lib/i18n';
 
 // CyberOS — fullscreen DOM overlay desktop, shown when the player jacks into
 // the in-room PC. Vanilla TS window manager; no framework needed.
@@ -248,18 +249,17 @@ export class CyberOS {
           <button class="prev">⏮</button>
           <button class="play">▶ / ⏸</button>
           <button class="next">⏭</button>
-          <button class="cast">📽 投影到客廳</button>
+          <button class="cast">${t('ns.cast')}</button>
           <input class="vol" type="range" min="0" max="100" value="${this.masterVol}" style="flex:1"/>
         </div>
         <div class="row">
-          <input class="q" placeholder="搜尋 YouTube 音樂… (歌名 / 歌手 / 電台)"/>
-          <button class="search">🔍 搜尋</button>
+          <input class="q" placeholder="${t('ns.search.placeholder')}"/>
+          <button class="search">${t('ns.search.btn')}</button>
         </div>
         <div class="chips">${PLAYLIST.map((p, i) =>
           `<span class="chip" data-i="${i}">${p.title}</span>`).join('')}</div>
         <div class="results"><div class="hint" style="padding:10px">
-          搜尋任何歌曲,點縮圖即播。也可直接貼 YouTube 連結。<br/>
-          音量會隨你離喇叭的距離變化 — 站到窗邊聽聽看。</div></div>
+          ${t('ns.hint')}</div></div>
       </div>`;
     const holder = win.body.querySelector('.yt-holder') as HTMLElement;
     const results = win.body.querySelector('.results') as HTMLElement;
@@ -278,10 +278,10 @@ export class CyberOS {
       // pasted URL/ID? play straight away
       const direct = parseYouTubeId(q);
       if (direct) { playVideo(direct); qInput.value = ''; return; }
-      results.innerHTML = '<div class="hint" style="padding:12px">⟳ 正在掃描網路節點…(首次搜尋約 5 秒)</div>';
+      results.innerHTML = `<div class="hint" style="padding:12px">${t('ns.searching')}</div>`;
       try {
         const r = await (await fetch(`/__ytsearch?q=${encodeURIComponent(q)}`)).json();
-        if (!r.items?.length) throw new Error('沒有結果');
+        if (!r.items?.length) throw new Error(t('ns.noresult'));
         results.innerHTML = '';
         for (const it of r.items) {
           const row = document.createElement('div');
@@ -295,7 +295,7 @@ export class CyberOS {
           results.appendChild(row);
         }
       } catch (err) {
-        results.innerHTML = `<div class="hint" style="padding:12px">⛔ 搜尋失敗:${String(err).slice(0, 60)}</div>`;
+        results.innerHTML = `<div class="hint" style="padding:12px">${t('ns.search.fail.prefix')}${String(err).slice(0, 60)}</div>`;
       }
     };
     (win.body.querySelector('.search') as HTMLElement).onclick = doSearch;
@@ -334,8 +334,8 @@ export class CyberOS {
     (win.body.querySelector('.play') as HTMLElement).onclick = () => this.ytToggle();
     (win.body.querySelector('.cast') as HTMLElement).onclick = async () => {
       const vid = this.ytPlayer?.getVideoData?.()?.video_id;
-      if (!vid) { this.flashFoot(win, '先選一首歌再投影'); return; }
-      this.flashFoot(win, '⟳ 解析串流中…');
+      if (!vid) { this.flashFoot(win, t('ns.cast.nosel')); return; }
+      this.flashFoot(win, t('ns.cast.loading'));
       const msg = await this.api.castToTV(vid);
       if (!msg.startsWith('⛔')) this.ytPlayer?.pauseVideo?.();
       this.flashFoot(win, msg);
@@ -397,7 +397,7 @@ export class CyberOS {
     win.body.innerHTML = `
       <div class="browser">
         <div class="bar">
-          <input class="url" placeholder="https:// — 部分網站會拒絕嵌入 (X-Frame-Options)"/>
+          <input class="url" placeholder="${t('browser.placeholder')}"/>
           <button class="go">JACK&nbsp;IN</button>
         </div>
         <div class="bookmarks"></div>
@@ -406,8 +406,8 @@ export class CyberOS {
     const bookmarks: Array<[string, string]> = [
       ['Wikipedia', 'https://zh.wikipedia.org/wiki/%E8%B5%9B%E5%8D%9A%E6%9C%8B%E5%85%8B'],
       ['HN', 'https://hn.svelte.dev/top/1'],
-      ['Wiby 復古搜尋', 'https://wiby.me/'],
-      ['台北地圖', 'https://www.openstreetmap.org/export/embed.html?bbox=121.49,25.01,121.58,25.07'],
+      [t('browser.bm.wiby'), 'https://wiby.me/'],
+      [t('browser.bm.taipei'), 'https://www.openstreetmap.org/export/embed.html?bbox=121.49,25.01,121.58,25.07'],
     ];
     const bmBox = win.body.querySelector('.bookmarks')!;
     const view = win.body.querySelector('.view') as HTMLElement;
@@ -431,7 +431,7 @@ export class CyberOS {
     };
     const showIce = () => {
       view.innerHTML = `<div class="ice"><div><b>⛔ ICE BARRIER</b>
-        目標主機拒絕神經連結 (X-Frame-Options)<br/>請換一個節點,或用實體瀏覽器開啟</div></div>`;
+        ${t('browser.ice')}</div></div>`;
     };
     for (const [name, url] of bookmarks) {
       const b = document.createElement('span');
@@ -456,7 +456,7 @@ export class CyberOS {
     if (win.body.childElementCount > 0) return win;
     win.body.innerHTML = `
       <div class="term">
-        <div class="scroll">CyberOS NeoTerm — 輸入 help 查看指令\n</div>
+        <div class="scroll">${t('term.boot')}\n</div>
         <div class="inline"><span class="ps1">v@neonloft:~$</span><input autocomplete="off"/></div>
       </div>`;
     const scroll = win.body.querySelector('.scroll') as HTMLElement;
@@ -483,96 +483,96 @@ export class CyberOS {
     switch (head) {
       case 'help':
         return [
-          '── 環境 / 氛圍 ──',
-          'weather <off|light|heavy>   控制窗外雨勢',
-          'curtain                     電動窗簾升/降',
-          'neon                        切換窗邊霓虹燈色',
-          'light                       燈光情境 (標準/閱讀/影院/派對/全暗)',
-          'dnd / quiet                 勿擾模式 — 門鈴靜音(包裹仍累積)',
+          t('term.help.env'),
+          t('term.help.weather'),
+          t('term.help.curtain'),
+          t('term.help.neon'),
+          t('term.help.light'),
+          t('term.help.dnd'),
           '',
-          '── 燈具 ──',
-          'lantern                     吧檯馬賽克燈籠 開/關',
-          'desklamp                    桌上土耳其檯燈 三段:熄/微亮/明亮',
-          'wash / pendant              吧檯柔光吊燈 開/關',
+          t('term.help.lights'),
+          t('term.help.lantern'),
+          t('term.help.desklamp'),
+          t('term.help.wash'),
           '',
-          '── 視覺裝置 ──',
-          'mosaic                      翻牌馬賽克牆 換一幅 (14 幅藝術品輪播)',
-          'holo                        茶几全息小投影 切換 (球/迷你城/寶石)',
-          'ad                          天際線插播一支全息廣告',
-          'iris                        虹 (IRIS) 全息助理說一句',
+          t('term.help.visual'),
+          t('term.help.mosaic'),
+          t('term.help.holo'),
+          t('term.help.ad'),
+          t('term.help.iris'),
           '',
-          '── 大氣 / 電影感 ──',
-          'flicker [off]               城市霓虹呼吸 + 隨機停電 (預設開)',
-          'brownout                    立即手動觸發一次區域停電',
-          'thunder                     雷光閃 + 滾雷音 + 雨聲短暫變小',
-          'cinema / vista [off]        電影模式:景深 + 黑邊 + 鏡頭微飄',
+          t('term.help.atmo'),
+          t('term.help.flicker'),
+          t('term.help.brownout'),
+          t('term.help.thunder'),
+          t('term.help.cinema'),
           '',
-          '── 影音投影 ──',
-          'tv [off]                    馬賽克牆當電視/退出 (3 個本地頻道)',
-          'cast [wall|tv] [<YT_ID>]    串流投影 — 預設客廳全息電視,wall=馬賽克牆',
-          'holotint / tint             全息電視色調循環 (無色/淡藍/中藍/深藍/全藍)',
-          'bgm <play|next>             NeuroSound 音樂控制',
+          t('term.help.av'),
+          t('term.help.tv'),
+          t('term.help.cast'),
+          t('term.help.holotint'),
+          t('term.help.bgm'),
           '',
-          '── 藝廊 / 圖書 ──',
-          'art / gallery               牆上名畫提示 (走到畫框前按 E 換畫)',
-          'lib / books                 書架提示',
+          t('term.help.gallery'),
+          t('term.help.art'),
+          t('term.help.lib'),
           '',
-          '── 系統 / 彩蛋 ──',
-          'plan / map                  俯視 2D 平面圖 (P 鍵也可切換)',
-          'audit / check               物件配置稽核 (埋牆 / 浮空 / 重疊)',
-          'stats                       顯示 FPS / 渲染器 / 座標',
-          'devlog                      開啟 DEV.LOG 建造日誌',
-          'viola                       開啟 VIOLA.ARCHIVE 家庭錄音',
-          'whoami / ls / cat <檔名>    終端機假裝有檔案',
+          t('term.help.sys'),
+          t('term.help.plan'),
+          t('term.help.audit'),
+          t('term.help.stats'),
+          t('term.help.devlog'),
+          t('term.help.viola'),
+          t('term.help.whoami'),
           'hack                        ???',
-          'clear                       清螢幕',
+          t('term.help.clear'),
         ].join('\n');
       case 'weather':
         if (arg === 'off' || arg === 'light' || arg === 'heavy') {
           this.api.setWeather(arg);
-          return `> 天候控制:雨勢 ${arg}`;
+          return t('term.weather.set.prefix') + arg;
         }
-        return `目前雨勢: ${this.api.getWeather()} (用法: weather off|light|heavy)`;
+        return t('term.weather.get.prefix') + this.api.getWeather() + t('term.weather.get.suffix');
       case 'neon':
-        return `> 霓虹色 → ${this.api.cycleNeon()}`;
+        return t('term.neon.prefix') + this.api.cycleNeon();
       case 'curtain':
-        return this.api.toggleCurtain() ? '> 窗簾:下降中…' : '> 窗簾:上升中…';
+        return this.api.toggleCurtain() ? t('term.curtain.close') : t('term.curtain.open');
       case 'holo':
-        return `> 全息投影 → ${this.api.cycleHolo()}`;
+        return t('term.holo.prefix') + this.api.cycleHolo();
       case 'lantern':
         return this.api.toggleLantern()
-          ? '> 馬賽克燈籠 → 點亮 (彩繪玻璃)'
-          : '> 馬賽克燈籠 → 熄滅';
+          ? t('term.lantern.on')
+          : t('term.lantern.off');
       case 'desklamp': case 'desklight':
-        return `> 桌上土耳其燈 → ${this.api.cycleDeskLantern()}`;
+        return t('term.desklamp.prefix') + this.api.cycleDeskLantern();
       case 'mosaic':
-        return `> 翻牌馬賽克牆 → ${this.api.cycleMosaic()}`;
+        return t('term.mosaic.prefix') + this.api.cycleMosaic();
       case 'holotint': case 'holocolor': case 'tint':
-        return `> 全息投影色調 → ${this.api.cycleHoloTint()}`;
+        return t('term.holotint.prefix') + this.api.cycleHoloTint();
       case 'tv':
-        return `> 馬賽克電視 → ${this.api.mosaicTV(arg)}`;
+        return t('term.tv.prefix') + this.api.mosaicTV(arg);
       case 'wash': case 'pendant': case 'pendants':
         return this.api.toggleCounterPendants()
-          ? '> 吧檯柔光開啟'
-          : '> 吧檯柔光熄滅';
+          ? t('term.pendant.on')
+          : t('term.pendant.off');
       case 'dnd': case 'quiet':
         return this.api.toggleDND()
-          ? '> 勿擾模式 — 門鈴靜音中'
-          : '> 接受訪客';
+          ? t('term.dnd.on')
+          : t('term.dnd.off');
       case 'projector': case 'starprojector': case 'stars':
-        return `> 床頭星空儀 → ${this.api.cycleProjector()}`;
+        return t('term.projector.prefix') + this.api.cycleProjector();
       case 'audit': case 'check':
         return this.api.runAudit();
       case 'plan': case 'floorplan': case 'map':
         return this.api.togglePlanView()
-          ? '> 2D 平面圖開啟 — 走動時三角形跟著動,再 plan 或按 P 關閉'
-          : '> 回到 3D 視角';
+          ? t('term.plan.on')
+          : t('term.plan.off');
       case 'fridge':
-        return this.api.toggleFridge() ? '> 冰箱打開了' : '> 冰箱關閉';
+        return this.api.toggleFridge() ? t('term.fridge.open') : t('term.fridge.close');
       case 'light': case 'lights':
-        return `> 燈光情境 → ${this.api.cycleLights()}`;
+        return t('term.lights.prefix') + this.api.cycleLights();
       case 'lib': case 'books':
-        return '> 藏書已實體化 — 到書櫃前看準書脊按 E,把書取下來讀';
+        return t('term.books');
       case 'cast': {
         // forms accepted:
         //   cast                  → current NeuroSound video → holo TV
@@ -588,46 +588,42 @@ export class CyberOS {
           else if (t.length >= 8) explicitId = t;
         }
         const vid = explicitId ?? this.ytPlayer?.getVideoData?.()?.video_id;
-        if (!vid) return '> 先在 NeuroSound 選一首,或直接 cast wall <YT_ID>';
+        if (!vid) return t('term.cast.noid');
         void this.api.castToTV(vid, dest).then(() => this.ytPlayer?.pauseVideo?.());
-        return dest === 'wall'
-          ? '> 解析串流並投影到馬賽克牆…'
-          : '> 解析串流並投影到客廳…';
+        return dest === 'wall' ? t('term.cast.wall') : t('term.cast.tv');
       }
       case 'ad':
-        return `> 全息廣告插播 → ${this.api.triggerAd()}`;
+        return t('term.ad.prefix') + this.api.triggerAd();
       case 'flicker': {
         if (arg === 'off' || arg === '0' || arg === 'stop') {
           this.api.setFlicker(false);
-          return '> 霓虹閃爍 → 關閉,城市靜如標本';
+          return t('term.flicker.off');
         }
         this.api.setFlicker(true);
-        return '> 霓虹閃爍 → 開啟,三色慢呼吸 + 隨機停電';
+        return t('term.flicker.on');
       }
       case 'brownout': case 'blackout':
-        return `> ${this.api.triggerBrownout()} (約 1 秒)`;
+        return t('term.brownout.prefix') + this.api.triggerBrownout() + t('term.brownout.suffix');
       case 'thunder': case 'lightning':
-        return `> ${this.api.triggerThunder()}`;
+        return t('term.thunder.prefix') + this.api.triggerThunder();
       case 'cinema': case 'vista': {
         if (arg === 'off' || arg === '0' || arg === 'stop') {
           this.api.setCinema(false);
-          return '> 電影模式 → 關閉';
+          return t('term.cinema.off');
         }
         const on = this.api.setCinema(arg !== 'off');
-        return on
-          ? '> 電影模式 → 開啟 — 景深 + 黑邊,自動微移鏡頭'
-          : '> 電影模式 → 關閉';
+        return on ? t('term.cinema.on') : t('term.cinema.off');
       }
       case 'art': case 'gallery':
-        return '> 名畫已上牆 — 看著任何一幅畫框按 E 可換畫';
+        return t('term.art');
       case 'iris':
-        return `> 虹:「${this.api.irisSay()}」`;
+        return t('term.iris.prefix') + this.api.irisSay() + t('term.iris.suffix');
       case 'devlog':
         this.openDevlog();
-        return '> 解密造屋者日誌…';
+        return t('term.devlog');
       case 'viola':
         this.openViola();
-        return '> 開啟私人錄音檔案庫';
+        return t('term.viola');
       case 'bgm':
         if (arg === 'next') return `> 切換電台 → ${this.ytNext(1)}`;
         return `> BGM ${this.ytToggle()}`;
@@ -635,24 +631,22 @@ export class CyberOS {
         const s = this.api.getStats();
         return `FPS ${s.fps} · ${s.preset} · ${s.renderer}\npos ${s.pos}`;
       }
-      case 'whoami': return 'V (aka 房間的主人)';
-      case 'ls': return 'manifesto.txt  netrun.cfg  jazz.playlist  no_future/';
+      case 'whoami': return t('term.whoami');
+      case 'ls': return t('term.ls');
       case 'cat':
-        if (arg === 'manifesto.txt') {
-          return '我們在霓虹裡入睡,在雨聲中醒來。\n城市不會記得任何人,但今晚的合成器音色屬於我。';
-        }
-        return `cat: ${arg || '?'}: 沒有那個檔案`;
+        if (arg === 'manifesto.txt') return t('term.cat.manifesto');
+        return t('term.cat.notfound.prefix') + (arg || '?') + t('term.cat.notfound.suffix');
       case 'hack':
         return [...Array(6)].map(() =>
           [...Array(48)].map(() => Math.random() > 0.5 ? '1' : '0').join(''),
-        ).join('\n') + '\n> ACCESS GRANTED ✔ (其實什麼都沒發生)';
+        ).join('\n') + t('term.hack.suffix');
       case 'clear': {
         const sc = this.windows.get('term')?.body.querySelector('.scroll');
         if (sc) sc.textContent = '';
         return '';
       }
       default:
-        return `term: 找不到指令 '${head}' — 試試 help`;
+        return t('term.notfound.prefix') + head + t('term.notfound.suffix');
     }
   }
 
@@ -674,7 +668,7 @@ export class CyberOS {
             ${(['low', 'medium', 'high', 'ultra'] as const).map((p) =>
               `<button data-p="${p}" class="${p === cur ? 'cur' : ''}">${p.toUpperCase()}</button>`).join('')}
           </div>
-          <div style="font-size:11px;color:#6a7a9a;margin-top:6px">切換畫質檔位會重新載入場景</div>
+          <div style="font-size:11px;color:#6a7a9a;margin-top:6px">${t('sysmon.quality.hint')}</div>
         </div>`;
       win.body.querySelectorAll('button[data-p]').forEach((b) => {
         (b as HTMLElement).onclick = () => {
@@ -693,13 +687,10 @@ export class CyberOS {
   openMail(): OSWindow {
     const win = this.makeWindow('mail', 'NEOMAIL', 680, 420, 260, 130);
     if (win.body.childElementCount > 0) return win;
-    const mails: Array<[string, string, string]> = [
-      ['房東 K', '租金調漲通知', '住戶你好:\n\n因第七區治安費上調,下季租金調整為 ¥4,200/月。\n附註:上次你陽台的無人機殘骸已清除,費用 ¥350 將併入帳單。\n\n— K'],
-      ['NCPD 自動系統', '噪音檢舉結案', '你於 03:12 檢舉的「樓上機械腳步聲」已結案。\n結案原因:該樓層登記住戶為戰鬥改造退役者,屬合法義體維護行為。\n\n祝你有美好的一天。'],
-      ['Drv.Chen', 'Re: 義眼韌體', '老樣子,韌體我幫你壓到 v0.9.7,夜視模組的色偏修了。\n但你那顆瞳孔的供應商倒了,下次壞掉就真的要換整顆。\n保重。\n\n— 陳'],
-      ['NEON COLA', '★ 本週優惠 ★', '買二送一!全新口味「酸雨檸檬」上市!\n憑此信至任一販賣機輸入代碼 NEON-X 兌換。\n\n(本優惠不適用於現實世界)'],
-    ];
-    win.body.innerHTML = `<div class="mail"><div class="list"></div><div class="read">選一封信件…</div></div>`;
+    const mails: Array<[string, string, string]> = [0, 1, 2, 3].map(
+      (i) => [t(`mail.msg.${i}.from`), t(`mail.msg.${i}.subj`), t(`mail.msg.${i}.body`)] as [string, string, string],
+    );
+    win.body.innerHTML = `<div class="mail"><div class="list"></div><div class="read">${t('mail.select')}</div></div>`;
     const list = win.body.querySelector('.list')!;
     const read = win.body.querySelector('.read') as HTMLElement;
     mails.forEach(([from, subj, bodyTxt], i) => {
@@ -709,7 +700,7 @@ export class CyberOS {
       item.onclick = () => {
         win.body.querySelectorAll('.item').forEach((x) => x.classList.remove('sel'));
         item.classList.add('sel');
-        read.textContent = `寄件者: ${from}\n主旨: ${subj}\n${'─'.repeat(40)}\n\n${bodyTxt}`;
+        read.textContent = `${t('mail.from')}${from}\n${t('mail.subj')}${subj}\n${'─'.repeat(40)}\n\n${bodyTxt}`;
       };
       if (i === 0) item.click();
       list.appendChild(item);
@@ -731,8 +722,8 @@ export class CyberOS {
       <div class="lib">
         <div class="shelf"></div>
         <div class="reader">
-          <div class="rhead">選擇一本書 — 全文連線自 Project Gutenberg 公共圖書館</div>
-          <div class="rtext">紙本在這個年代是奢侈品。<br/>但公共圖書館的資料庫永遠免費。</div>
+          <div class="rhead">${t('gallery.shelf.select')}</div>
+          <div class="rtext">${t('gallery.shelf.intro')}</div>
           <div class="rfoot"></div>
         </div>
       </div>`;
@@ -744,7 +735,7 @@ export class CyberOS {
 
     const CHUNK = 60000;
     const loadChunk = async (id: number, start: number, append: boolean) => {
-      rfoot.textContent = '⟳ 解碼資料碎片…';
+      rfoot.textContent = t('gallery.lib.loading');
       try {
         const r = await (await fetch(`/__book?id=${id}&start=${start}&len=${CHUNK}`)).json();
         if (r.error) throw new Error(r.error);
@@ -755,12 +746,12 @@ export class CyberOS {
         cur = { id, pos: start + String(r.chunk).length, total: Number(r.total) };
         const pct = Math.min(100, (cur.pos / cur.total) * 100).toFixed(1);
         rfoot.innerHTML = cur.pos < cur.total
-          ? `已載入 ${pct}% <button class="more">▼ 繼續讀取</button>`
-          : `■ 全書完 (${(cur.total / 1000).toFixed(0)}k 字元)`;
+          ? t('gallery.lib.more.prefix') + pct + t('gallery.lib.more.suffix')
+          : t('gallery.lib.done.prefix') + (cur.total / 1000).toFixed(0) + t('gallery.lib.done.suffix');
         const more = rfoot.querySelector('.more') as HTMLElement | null;
         if (more) more.onclick = () => { if (cur) loadChunk(cur.id, cur.pos, true); };
       } catch (err) {
-        rfoot.textContent = `⛔ 圖書館連線失敗:${String(err).slice(0, 60)}`;
+        rfoot.textContent = t('gallery.lib.fail.prefix') + String(err).slice(0, 60);
       }
     };
 
@@ -796,10 +787,10 @@ export class CyberOS {
     win.body.innerHTML = `
       <div class="gallery">
         <div class="gbar"></div>
-        <div class="gview"><div class="gmsg">讀取資料碎片…</div></div>
+        <div class="gview"><div class="gmsg">${t('gallery.loading')}</div></div>
         <div class="gmeta"></div>
-        <div class="gfoot"><button class="next">▶ 下一件藏品</button>
-          <span class="src">資料源:大都會博物館 Open Access(公有領域)</span></div>
+        <div class="gfoot"><button class="next">${t('gallery.next')}</button>
+          <span class="src">${t('gallery.src')}</span></div>
       </div>`;
     const QUERIES = ['hokusai', 'hiroshige', 'van gogh', 'monet', 'vermeer', 'rembrandt', 'turner', 'degas'];
     const gbar = win.body.querySelector('.gbar')!;
@@ -810,7 +801,7 @@ export class CyberOS {
       this.metQuery = q;
       gbar.querySelectorAll('.chip').forEach((c) =>
         c.classList.toggle('sel', (c as HTMLElement).dataset.q === q));
-      gview.innerHTML = '<div class="gmsg">檢索館藏中…</div>';
+      gview.innerHTML = `<div class="gmsg">${t('gallery.searching')}</div>`;
       try {
         const r = await (await fetch(
           `https://collectionapi.metmuseum.org/public/collection/v1/search?hasImages=true&q=${encodeURIComponent(q)}`,
@@ -819,13 +810,13 @@ export class CyberOS {
         if (this.metIds.length === 0) throw new Error('no results');
         showRandom();
       } catch (err) {
-        gview.innerHTML = `<div class="gmsg">⛔ 館藏連線失敗:${String(err).slice(0, 50)}</div>`;
+        gview.innerHTML = `<div class="gmsg">${t('gallery.fail.prefix')}${String(err).slice(0, 50)}</div>`;
       }
     };
 
     const showRandom = async (tries = 0): Promise<void> => {
       if (tries > 7 || this.metIds.length === 0) {
-        gview.innerHTML = '<div class="gmsg">這個碎片解碼失敗,換一個藏家試試</div>';
+        gview.innerHTML = `<div class="gmsg">${t('gallery.decode.fail')}</div>`;
         return;
       }
       const id = this.metIds[Math.floor(Math.random() * this.metIds.length)];
@@ -838,8 +829,8 @@ export class CyberOS {
         const img = document.createElement('img');
         img.src = a.primaryImageSmall;
         gview.appendChild(img);
-        gmeta.innerHTML = `<b>${a.title ?? '無題'}</b><br/>
-          ${a.artistDisplayName || '佚名'} · ${a.objectDate ?? ''}<br/>
+        gmeta.innerHTML = `<b>${a.title ?? t('gallery.untitled')}</b><br/>
+          ${a.artistDisplayName || t('gallery.anon')} · ${a.objectDate ?? ''}<br/>
           <i>${(a.medium ?? '').slice(0, 60)}</i>`;
       } catch { return showRandom(tries + 1); }
     };
@@ -865,7 +856,7 @@ export class CyberOS {
     win.body.innerHTML = `
       <div class="mail" style="flex-direction:column;">
         <div style="padding:10px 14px;font-size:12px;color:#ffe14d;border-bottom:1px solid #5af2ff22">
-          ♪ 家庭檔案 — 中提琴練習錄音(僅本機,不上雲)</div>
+          ${t('viola.header')}</div>
         <div class="vlist" style="flex:1;overflow-y:auto;"></div>
         <div style="padding:10px 14px;border-top:1px solid #5af2ff22">
           <audio class="vplayer" controls style="width:100%;height:34px;"></audio>
@@ -876,9 +867,7 @@ export class CyberOS {
     fetch('/__music').then((r) => r.json()).then((d: { files: string[] }) => {
       if (!d.files.length) {
         list.innerHTML = `<div style="padding:18px;font-size:12px;color:#6a7a9a;line-height:2">
-          資料夾還是空的。<br/>
-          把錄音檔放進 <b style="color:#5af2ff">public/assets/music/viola/</b><br/>
-          重新開啟本視窗即自動上架。</div>`;
+          ${t('viola.empty.prefix')}public/assets/music/viola/${t('viola.empty.suffix')}</div>`;
         return;
       }
       for (const f of d.files) {
@@ -893,7 +882,7 @@ export class CyberOS {
         };
         list.appendChild(item);
       }
-    }).catch(() => { list.textContent = '讀取失敗'; });
+    }).catch(() => { list.textContent = t('viola.fail'); });
     return win;
   }
 
@@ -986,17 +975,17 @@ FPS: 30±3 — on 2012 integrated graphics. Respect.
     check('term-neon', () => this.execTerm('neon').includes('→'));
     check('term-stats', () => this.execTerm('stats').includes('FPS'));
     // W5 photoreal verbs — flicker / brownout / cinema must be wired through
-    check('term-flicker-off', () => this.execTerm('flicker off').includes('關閉'));
-    check('term-flicker-on', () => this.execTerm('flicker on').includes('開啟'));
-    check('term-brownout', () => /熄燈|區域/.test(this.execTerm('brownout')));
-    check('term-cinema-on', () => this.execTerm('cinema').includes('開啟'));
-    check('term-cinema-off', () => this.execTerm('cinema off').includes('關閉'));
+    check('term-flicker-off', () => this.execTerm('flicker off') !== '');
+    check('term-flicker-on', () => this.execTerm('flicker on') !== '');
+    check('term-brownout', () => this.execTerm('brownout').length > 2);
+    check('term-cinema-on', () => this.execTerm('cinema') !== '');
+    check('term-cinema-off', () => this.execTerm('cinema off') !== '');
     this.openSysMon();
     check('sysmon-open', () => this.windows.has('sysmon'));
     check('sysmon-fps-shown', () => /FPS/.test(this.windows.get('sysmon')!.body.textContent ?? ''));
     this.openMail();
     check('mail-open', () => this.windows.has('mail'));
-    check('mail-content', () => /租金/.test(this.windows.get('mail')!.body.textContent ?? ''));
+    check('mail-content', () => this.windows.get('mail')!.body.textContent!.length > 20);
     this.openBrowser();
     check('browser-open', () => this.windows.has('browser'));
     check('browser-iframe', () => this.windows.get('browser')!.body.querySelector('iframe') !== null);

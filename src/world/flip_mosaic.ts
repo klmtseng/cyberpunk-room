@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t as i18n } from '../lib/i18n';
 
 // Flip-tile mosaic display — replaces the static purple backsplash with a wall
 // of 28×5 tiles that wave-flip to reveal a piece of art. Three content sources
@@ -302,7 +303,7 @@ export async function buildFlipMosaic(opts: {
       // E on the wall while in TV → behave like a remote: cycle channel
       return cycleTV();
     }
-    if (state === 'flipping-on' || state === 'flipping-off') return '(切換中…)';
+    if (state === 'flipping-on' || state === 'flipping-off') return i18n('mosaic.flipping');
     if (state === 'off') {
       // schedule, but loadEntry is async — kick it off and return label optimistically
       void startReveal();
@@ -314,7 +315,7 @@ export async function buildFlipMosaic(opts: {
   };
 
   const cycleTV = (): string => {
-    if (!TV_PLAYLIST.length) return '(無影片)';
+    if (!TV_PLAYLIST.length) return i18n('mosaic.no.video');
     ensureTVRig();
     // switching from external cast back to local playlist? drop the ext rig
     if (externalCast) {

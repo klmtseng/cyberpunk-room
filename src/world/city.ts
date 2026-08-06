@@ -3,6 +3,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import type { EngineCtx } from '../engine/renderer';
 import { buildAdWall } from './ad_wall';
 import { buildScanlineMaterial } from './shaders/hologram_scanline.glsl';
+import { t as i18n } from '../lib/i18n';
 
 export interface CityRig {
   group: THREE.Group;
@@ -1416,7 +1417,7 @@ export function buildCity(ctx: EngineCtx): CityRig {
   //   3) lightning: a downward flash via a transient DirectionalLight
   // ON by default once W5 lands — moods/preset/term toggle to taste.
   const baseEmissives = towerMats.map((m) => m.emissiveIntensity);
-  const MATERIAL_LABELS = ['青藍', '霓桃', '琥珀'];
+  const MATERIAL_LABELS = () => [i18n('city.mat.cyan'), i18n('city.mat.pink'), i18n('city.mat.amber')];
   let flickerOn = true;
   let brownoutMatIdx = -1;
   let brownoutT = 0;     // seconds remaining
@@ -1431,12 +1432,13 @@ export function buildCity(ctx: EngineCtx): CityRig {
   const LIGHTNING_PEAK = 5.5;
 
   const triggerBrownout = (): string => {
-    if (brownoutT > 0) return MATERIAL_LABELS[brownoutMatIdx] + ' 區域已熄燈';
+    const labels = MATERIAL_LABELS();
+    if (brownoutT > 0) return labels[brownoutMatIdx] + i18n('city.brownout.already');
     brownoutMatIdx = Math.floor(Math.random() * towerMats.length);
     brownoutPrev = towerMats[brownoutMatIdx].emissiveIntensity;
     brownoutT = 0.5 + Math.random() * 1.0;
     towerMats[brownoutMatIdx].emissiveIntensity = 0.04;
-    return MATERIAL_LABELS[brownoutMatIdx] + ' 區域熄燈';
+    return labels[brownoutMatIdx] + i18n('city.brownout.trigger');
   };
   const triggerLightning = (): void => {
     lightningT = 0.32;
