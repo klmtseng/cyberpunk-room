@@ -14,12 +14,14 @@ Output:
     public/assets/textures/desk_lantern_mosaic_rough.png
 """
 from __future__ import annotations
+import os
 import sys
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 import numpy as np
 
-UPLOADS = Path("mosaic_src")
+# Directory holding the 4 source lamp photos (not bundled in the repo).
+UPLOADS = Path(os.environ.get("MOSAIC_SRC_DIR", "mosaic_src"))
 OUT = Path(__file__).resolve().parent.parent.parent / "public/assets/textures"
 OUT.mkdir(parents=True, exist_ok=True)
 
