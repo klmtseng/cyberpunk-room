@@ -667,13 +667,15 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   strip(0.02, 0.02, 2.30, 0xff2bdb, 5.175, 0.715, 3.4, 2.1);
 
   // monitor riser shelf — runs along z near the back wall, lifts centre monitor
-  box(0.22, 0.05, 0.95, matDark, 5.95, 0.83, 3.4);
+  // Wall inner face is x=5.875 (right wall solid spans 5.875..6.125) — everything
+  // below must stay inside it, including the rotated side-monitor corners.
+  box(0.22, 0.05, 0.95, matDark, 5.75, 0.83, 3.4);
 
   // triple monitors — all face -x (toward chair), arranged along z
-  const monitorPlane = makeMonitor(1.1, 0.62, 0x5af2ff, 5.95, 1.50, 3.4, -Math.PI/2);
+  const monitorPlane = makeMonitor(1.1, 0.62, 0x5af2ff, 5.80, 1.50, 3.4, -Math.PI/2);
   monitorPlane.name = 'Monitor';
-  makeMonitor(0.62, 0.5, 0x39ff88, 5.97, 1.40, 3.02, -Math.PI/2 + 0.3);
-  makeMonitor(0.62, 0.5, 0xff2bdb, 5.97, 1.40, 3.78, -Math.PI/2 - 0.3);
+  makeMonitor(0.62, 0.5, 0x39ff88, 5.74, 1.40, 3.02, -Math.PI/2 + 0.3);
+  makeMonitor(0.62, 0.5, 0xff2bdb, 5.74, 1.40, 3.78, -Math.PI/2 - 0.3);
 
   // peripherals — keyboard centred + mouse to the right, both sit ON desk top (y=0.80)
   box(0.18, 0.04, 0.5, matDark, 5.55, 0.82, 3.4);                   // mech keyboard (long edge along z)
@@ -690,7 +692,7 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   strip(0.05, 0.005, 0.005, 0xff2bdb, 5.55, 0.832, 3.85, 2.0);      // mouse RGB
 
   // desktop speakers flanking the side monitors — sit ON desk top
-  for (const [sx, sy, sz] of [[5.92, 0.90, 2.75], [5.92, 0.90, 4.05]] as const) {
+  for (const [sx, sy, sz] of [[5.79, 0.90, 2.75], [5.79, 0.90, 4.05]] as const) {
     box(0.14, 0.20, 0.12, matDark, sx, sy, sz);
     const cone = new THREE.Mesh(
       new THREE.CircleGeometry(0.045, 18),
