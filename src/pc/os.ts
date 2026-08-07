@@ -40,6 +40,12 @@ export interface GameAPI {
   /** cinema/vista mode toggle (DOF + letterbox + idle pan) */
   setCinema: (on: boolean) => boolean;
   isCinemaOn: () => boolean;
+  /** Toggle height-fog and persist the choice. Default off. */
+  setHeightFogPref: (enabled: boolean) => void;
+  /** Switch tonemapping algorithm and persist. Default 'aces'. */
+  setTonemapPref: (mode: 'aces' | 'agx') => void;
+  /** Read current render prefs so SysMon can display live state. */
+  getRenderPrefs: () => { heightFog: boolean; tonemap: string };
 }
 
 interface OSWindow {
@@ -653,10 +659,11 @@ export class CyberOS {
   // ---------------- SysMon ----------------
 
   openSysMon(): OSWindow {
-    const win = this.makeWindow('sysmon', 'SYSMON', 460, 330, 420, 90);
+    const win = this.makeWindow('sysmon', 'SYSMON', 460, 380, 420, 90);
     const render = () => {
       const s = this.api.getStats();
       const cur = this.api.currentPreset();
+      const rp = this.api.getRenderPrefs();
       win.body.innerHTML = `
         <div class="sysmon">
           <div><span class="k">FPS</span><span class="v">${s.fps}</span></div>
@@ -669,10 +676,31 @@ export class CyberOS {
               `<button data-p="${p}" class="${p === cur ? 'cur' : ''}">${p.toUpperCase()}</button>`).join('')}
           </div>
           <div style="font-size:11px;color:#6a7a9a;margin-top:6px">${t('sysmon.quality.hint')}</div>
+          <div class="presets" style="margin-top:10px">
+            <span style="font-size:11px;color:#6a7a9a;margin-right:6px">HEIGHT FOG</span>
+            <button data-fog="1" class="${rp.heightFog ? 'cur' : ''}">ON</button>
+            <button data-fog="0" class="${rp.heightFog ? '' : 'cur'}">OFF</button>
+          </div>
+          <div class="presets" style="margin-top:4px">
+            <span style="font-size:11px;color:#6a7a9a;margin-right:6px">TONEMAP</span>
+            <button data-tm="aces" class="${rp.tonemap === 'aces' ? 'cur' : ''}">ACES</button>
+            <button data-tm="agx" class="${rp.tonemap === 'agx' ? 'cur' : ''}">AGX</button>
+          </div>
+          <div style="font-size:11px;color:#6a7a9a;margin-top:4px">RENDER PREFS — PERSISTED, INSTANT</div>
         </div>`;
       win.body.querySelectorAll('button[data-p]').forEach((b) => {
         (b as HTMLElement).onclick = () => {
           this.api.setPresetOverride((b as HTMLElement).dataset.p as any);
+        };
+      });
+      win.body.querySelectorAll('button[data-fog]').forEach((b) => {
+        (b as HTMLElement).onclick = () => {
+          this.api.setHeightFogPref((b as HTMLElement).dataset.fog === '1');
+        };
+      });
+      win.body.querySelectorAll('button[data-tm]').forEach((b) => {
+        (b as HTMLElement).onclick = () => {
+          this.api.setTonemapPref((b as HTMLElement).dataset.tm as 'aces' | 'agx');
         };
       });
     };

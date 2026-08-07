@@ -1,5 +1,16 @@
 import * as THREE from 'three';
 
+// Capture stock three fog chunks before anything overwrites them.
+// These are the verbatim strings shipped by three r170 and are what the scene
+// falls back to when height-fog is disabled. Captured at module-init time so
+// any import order is safe.
+const STOCK_CHUNKS = {
+  fog_pars_vertex:  THREE.ShaderChunk.fog_pars_vertex,
+  fog_vertex:       THREE.ShaderChunk.fog_vertex,
+  fog_pars_fragment: THREE.ShaderChunk.fog_pars_fragment,
+  fog_fragment:     THREE.ShaderChunk.fog_fragment,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Height-attenuated volumetric fog + aerial perspective.
 //
@@ -216,6 +227,17 @@ function glsl(p: HeightFogParams): { parsVertex: string; vertex: string; parsFra
 
 let installed = false;
 
+/** Trigger needsUpdate on all fog-enabled materials in the scene. */
+function invalidateFogMaterials(scene: THREE.Scene): void {
+  scene.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    if (!m) return;
+    for (const mat of Array.isArray(m) ? m : [m]) {
+      if ((mat as THREE.Material & { fog?: boolean }).fog) mat.needsUpdate = true;
+    }
+  });
+}
+
 /**
  * Overwrite three's fog chunks with the height-fog implementation and force a
  * recompile of every fog-enabled material already in the scene.
@@ -236,18 +258,41 @@ export function configureHeightFog(
   THREE.ShaderChunk.fog_fragment = chunks.fragment;
   installed = true;
 
-  if (scene) {
-    scene.traverse((o) => {
-      const m = (o as THREE.Mesh).material;
-      if (!m) return;
-      for (const mat of Array.isArray(m) ? m : [m]) {
-        if ((mat as THREE.Material & { fog?: boolean }).fog) mat.needsUpdate = true;
-      }
-    });
-  }
+  if (scene) invalidateFogMaterials(scene);
   return merged;
 }
 
+/**
+ * Enable or disable the height-fog shader override.
+ *
+ * When enabled, behaves identically to `configureHeightFog(params, scene)`.
+ * When disabled, restores three's stock fog ShaderChunks (the ones captured at
+ * module import time), making the scene visually identical to the pre-height-fog
+ * state (stock FogExp2 + ACES tonemapping). The FogExp2 object on the scene is
+ * left untouched in both cases; it is still needed to activate USE_FOG.
+ */
+export function setHeightFogEnabled(
+  enabled: boolean,
+  scene?: THREE.Scene,
+  params?: Partial<HeightFogParams>,
+): void {
+  if (enabled) {
+    configureHeightFog(params ?? {}, scene);
+  } else {
+    THREE.ShaderChunk.fog_pars_vertex  = STOCK_CHUNKS.fog_pars_vertex;
+    THREE.ShaderChunk.fog_vertex       = STOCK_CHUNKS.fog_vertex;
+    THREE.ShaderChunk.fog_pars_fragment = STOCK_CHUNKS.fog_pars_fragment;
+    THREE.ShaderChunk.fog_fragment     = STOCK_CHUNKS.fog_fragment;
+    installed = false;
+
+    if (scene) invalidateFogMaterials(scene);
+  }
+}
+
+/** Returns true only while the height-fog chunks are actually installed. */
 export function isHeightFogInstalled(): boolean {
   return installed;
 }
+
+/** Expose stock chunks so tests can verify byte-exact restoration. */
+export const _STOCK_CHUNKS_FOR_TEST = STOCK_CHUNKS;

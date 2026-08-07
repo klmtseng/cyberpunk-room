@@ -12,7 +12,7 @@
 // the other. Shader correctness is only ever established by rendering in a real
 // browser and reading the shaderErrors beacon.
 
-import { opticalDepth, FOG_BASE_Y, DEFAULT_PARAMS } from './height_fog.ts';
+import { opticalDepth, FOG_BASE_Y, DEFAULT_PARAMS, setHeightFogEnabled, isHeightFogInstalled, _STOCK_CHUNKS_FOR_TEST } from './height_fog.ts';
 
 let pass = 0, fail = 0;
 function ok(cond: boolean, msg: string) {
@@ -117,6 +117,39 @@ const K = DEFAULT_PARAMS.k;
   // an equally distant tower TOP must be clearly less fogged than the floor
   const towerTop = opticalDepth(250, eyeY, FOG_BASE_Y + 260, D, K);
   ok(canyon > towerTop * 1.5, `canyon floor at least 1.5x the tau of a tower top (${canyon.toFixed(3)} vs ${towerTop.toFixed(3)})`);
+}
+
+// (f) Chunk restoration: after enable → disable, all four ShaderChunks must be
+//     byte-for-byte identical to the stock strings captured at module load time.
+//     This is the strongest guarantee that "disable = identical to pre-height-fog".
+{
+  // We need a THREE import to inspect ShaderChunk. Import it the same way the module does.
+  const THREE = await import('three');
+
+  // First enable height-fog (no scene — chunk write only)
+  setHeightFogEnabled(true);
+  ok(isHeightFogInstalled(), 'chunk test: installed === true after enable');
+
+  // Now disable — must restore stock strings
+  setHeightFogEnabled(false);
+  ok(!isHeightFogInstalled(), 'chunk test: installed === false after disable');
+
+  ok(
+    THREE.ShaderChunk.fog_pars_vertex === _STOCK_CHUNKS_FOR_TEST.fog_pars_vertex,
+    'chunk restore: fog_pars_vertex byte-identical to stock',
+  );
+  ok(
+    THREE.ShaderChunk.fog_vertex === _STOCK_CHUNKS_FOR_TEST.fog_vertex,
+    'chunk restore: fog_vertex byte-identical to stock',
+  );
+  ok(
+    THREE.ShaderChunk.fog_pars_fragment === _STOCK_CHUNKS_FOR_TEST.fog_pars_fragment,
+    'chunk restore: fog_pars_fragment byte-identical to stock',
+  );
+  ok(
+    THREE.ShaderChunk.fog_fragment === _STOCK_CHUNKS_FOR_TEST.fog_fragment,
+    'chunk restore: fog_fragment byte-identical to stock',
+  );
 }
 
 console.log(`height_fog: ${pass} passed, ${fail} failed`);

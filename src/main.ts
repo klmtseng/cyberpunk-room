@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { detectHardware, pickPreset, settingsFor, loadOverride } from './engine/quality';
 import { createEngine } from './engine/renderer';
+import { loadPrefs, savePrefs } from './engine/render_prefs';
+import type { RenderPrefs } from './engine/render_prefs';
 import { initXR } from './engine/xr';
 import { installLighting, bakeEnvFromCity } from './world/lighting';
 import { buildRoom } from './world/room';
@@ -67,10 +69,13 @@ async function boot() {
   console.info('[NEON LOFT] hardware', hw, '→ preset', preset);
 
   step(0.3);
+  // Render prefs loaded before engine creation so initial tonemapping and fog
+  // are set at shader-compile time, avoiding a forced recompile on first frame.
+  const renderPrefs: RenderPrefs = loadPrefs();
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;';
   appEl.appendChild(canvas);
-  const ctx = createEngine(canvas, settings);
+  const ctx = createEngine(canvas, settings, renderPrefs);
 
   step(0.5);
   const lights = installLighting(ctx);
@@ -696,6 +701,17 @@ async function boot() {
     },
     setCinema: (on) => setCinema(on),
     isCinemaOn: () => cinemaOn,
+    setHeightFogPref: (enabled: boolean) => {
+      renderPrefs.heightFog = enabled;
+      savePrefs(renderPrefs);
+      ctx.setHeightFog(enabled);
+    },
+    setTonemapPref: (mode: 'aces' | 'agx') => {
+      renderPrefs.tonemap = mode;
+      savePrefs(renderPrefs);
+      ctx.setTonemap(mode);
+    },
+    getRenderPrefs: () => renderPrefs,
   });
 
   // jack-in state machine: play → enter-os (camera tween) → os → play
