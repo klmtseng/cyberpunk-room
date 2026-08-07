@@ -49,7 +49,7 @@ quantisation (~4e-3 of unity).
 | `k` | `0.016` | e-folding height ≈ 62 m. The canyon bottom sits deep in the dense layer; the loft at +152 m is at `exp(-2.43)` ≈ 8.8 % of base density, so the interior stays essentially clear. |
 | `NEAR_HAZE` | `0x0c1224` | Deliberately the **old fog colour** — the cool near-black blue the room was already art-directed against, so interior surfaces do not shift. |
 | `FAR_GLOW` | `0x6a4a72` | Desaturated purple-grey: the city's magenta `0xff2bdb` and cyan `0x5af2ff` mixed and knocked well down in saturation. Using raw magenta turns the skyline into cotton candy. |
-| `glowStart` / `glowEnd` | `0.42` / `0.95` | The city glow only appears once the ray is already deeply fogged (hundreds of metres out). Anything nearer sees pure `NEAR_HAZE`. **This split is the single thing keeping the interior untinted.** |
+| `glowStart` / `glowEnd` | `0.12` / `0.55` | The city glow only appears once the ray is already meaningfully fogged, i.e. past the room. Anything nearer sees pure `NEAR_HAZE`. **This split is the single thing keeping the interior untinted.** Was `0.42`/`0.95`; see "The dead-glow bug" below. |
 | `glowCeiling` / `glowFloor` | `190` / `0.22` | Looking upward there is no lit street below the sightline, so inscatter fades toward a 22 % floor with the ray's mid-height. |
 
 ## Implementation notes
@@ -78,10 +78,93 @@ Two details that are easy to get wrong:
 The `FogExp2` object stays on the scene because three keys `USE_FOG` and the
 `FOG_EXP2` define off its presence.
 
+## The dead-glow bug (found after the first landing, fixed in the follow-up)
+
+The first version shipped `glowStart 0.42` / `glowEnd 0.95`, and with those
+values **the aerial-perspective half of this effect never ran at all**. It was
+doing pure extinction toward a near-black haze — i.e. it just made the city
+dimmer, which is the opposite of a depth cue.
+
+Worked through for the mid-distance towers that dominate the window (~250 m out,
+tower face around `y = -50`):
+
+```
+fogFactor  = 0.514
+smoothstep(0.42, 0.95, 0.514)      = 0.035
+altitude term (midH 126 m)          × 0.265 → mix(0.22,1,·) = 0.428
+glowMix                             = 0.035 × 0.428 = 0.015
+```
+
+Two things stack against it. The `smoothstep` window starts above the fog factor
+the scene actually reaches, and the altitude term costs another 2.4× because the
+camera sits 152 m above the fog base, so *every* ray's mid-height is high. At
+`0.12` / `0.55` the same towers land at `glowMix ≈ 0.42`.
+
+Interior safety is unaffected and is **structural, not tuned**: a 4 m interior
+wall has `fogFactor = 0.007`, below `glowStart` under either setting, so its
+`glowMix` is exactly `0.000` either way.
+
+### How it was missed the first time
+
+The "window" camera pose used for the original acceptance shots,
+`(0, 1.7, 2.6)` yaw π, does not actually see the city — at that distance from
+the glass the frame is dominated by the interior wall and its neon sign. Every
+"windowA" number in the first round was measured on a wall. The correct pose is
+**`(0, 1.7, 6.0)` yaw π**, right at the glass (the window wall is `D/2 = 7`,
+see `world/room.ts:62`).
+
+Lesson worth keeping: a per-pixel diff that is "small but the right sign" is not
+evidence the feature works. Ablating hard — a 10× density probe — was what
+separated "plumbing is broken" from "tuning is too timid" here, and it showed
+the plumbing was fine.
+
 ## Measurements
 
 All captures: Firefox 153, Intel HD Graphics, `low` preset, 標準 lighting mood,
 same session, same camera poses, only the fog implementation differing.
+
+### Window pose `(0, 1.7, 6.0)` yaw π — the city view
+
+Frame split into 6 horizontal bands, top (sky) to bottom (street floor). `m` is
+band mean 0-255, `R−B` is the purple-vs-blue lean.
+
+| | band 0 (sky) | band 3 | band 4 | band 5 (street) |
+|---|---|---|---|---|
+| fog off | 84.8 / −5.4 | 45.1 / −23.0 | 42.8 / −20.0 | 47.3 / −16.0 |
+| `glowStart 0.42` (dead glow) | 83.7 / −5.5 | 41.7 / −28.0 | 39.8 / −23.2 | **43.6 / −17.3** |
+| `glowStart 0.12` (shipped) | 84.0 / −5.7 | 46.0 / −27.1 | 45.5 / −21.9 | **54.0 / −14.9** |
+
+Three things to read off it:
+
+- **Band 0 is unchanged across all three** (84.8 / 83.7 / 84.0). The sky shell is
+  `fog: false`, so this is the control: it confirms the override is not leaking
+  into materials it should not touch.
+- **The old setting moved the street the wrong way** — darker and bluer
+  (47.3 → 43.6, R−B −16.0 → −17.3). That is the pure-extinction failure mode.
+- **The shipped setting lifts the street and warms it** (47.3 → 54.0, R−B
+  −16.0 → −14.9) while leaving the sky alone. Monotone with height, which is
+  the whole point.
+
+Per-pixel diff at this pose is **not** a usable statistic: the animation noise
+floor here is 3.7-4.1 / 255 (rain, cycling signs), measured from three
+consecutive captures with no code change. The band statistics above are stable
+across those same three captures and are what the claims rest on.
+
+Image: `height-fog-city.jpg` — off / dead-glow / shipped, top to bottom.
+
+### Interior pose `(0.6, 1.7, 5.4)` yaw 0.35 — the tint budget
+
+| vs fog off | mean abs diff | R−B shift (mean) | R−B shift (p99) |
+|---|---|---|---|
+| `glowStart 0.42` | 2.524 | +0.811 | +10.00 |
+| `glowStart 0.12` (shipped) | **1.749** | **+0.590** | **+5.00** |
+
+Budget is 12 / 255. The shipped setting is not only inside it, it disturbs the
+interior *less* than the version it replaces, and its 1.749 sits below the
+interior animation noise floor of 2.090 — the near field is effectively
+untouched, which is exactly the requirement.
+
+### Older measurements (superseded)
 
 **Gates**
 
@@ -94,9 +177,13 @@ same session, same camera poses, only the fog implementation differing.
 
 **Frame differences (mean abs diff, 0-255)**
 
+> ⚠️ The `windowA` row below was measured at pose `(0, 1.7, 2.6)`, which shows an
+> interior wall and no city — see "How it was missed the first time". It is kept
+> only so the record shows what was actually claimed. Do not cite it.
+
 | Pair | Value |
 |---|---|
-| `windowA` off vs on | **5.209** |
+| `windowA` off vs on *(wrong pose)* | **5.209** |
 | `interiorB` off vs on | **2.524** |
 | *animation noise floor* (two OFF shots, same pose) | *2.090* |
 

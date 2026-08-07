@@ -66,16 +66,25 @@ export interface HeightFogParams {
 // farGlow 0x6a4a72: desaturated purple-grey, the magenta 0xff2bdb and cyan
 //   0x5af2ff mixed and heavily knocked down in saturation. Using the raw
 //   magenta here turns the skyline into cotton candy.
-// glowStart 0.42 / glowEnd 0.95: the city glow only appears once the ray is
-//   already deeply fogged, i.e. hundreds of metres out. Anything nearer sees
-//   pure nearHaze. This split is what keeps the interior from being tinted.
+// glowStart 0.12 / glowEnd 0.55: the city glow only appears once the ray is
+//   already meaningfully fogged, i.e. past the room. Anything nearer sees pure
+//   nearHaze. This split is what keeps the interior from being tinted.
+//   These were originally 0.42/0.95, which was measured to be a dead setting:
+//   the mid-distance towers that dominate the window reach fogFactor ≈ 0.51,
+//   and smoothstep(0.42, 0.95, 0.51) ≈ 0.03 — then the altitude term below
+//   knocks that down another 2.6×, leaving glowMix ≈ 0.035. So the aerial-
+//   perspective half of this effect never ran, and the fog was doing pure
+//   extinction toward a near-black haze (i.e. it just made the city dimmer).
+//   At 0.12/0.55 the same towers land at glowMix ≈ 0.42 while a 4m interior
+//   wall stays at exactly 0.000, because its fogFactor (0.007) is below
+//   glowStart in both settings. The interior safety is structural, not tuned.
 export const DEFAULT_PARAMS: HeightFogParams = {
   density: 0.021,
   k: 0.016,
   nearHaze: 0x0c1224,
   farGlow: 0x6a4a72,
-  glowStart: 0.42,
-  glowEnd: 0.95,
+  glowStart: 0.12,
+  glowEnd: 0.55,
   glowCeiling: 190,
   glowFloor: 0.22,
 };
