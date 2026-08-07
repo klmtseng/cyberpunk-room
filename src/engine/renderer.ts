@@ -4,6 +4,7 @@ import {
   ChromaticAberrationEffect, ToneMappingEffect, ToneMappingMode,
 } from 'postprocessing';
 import type { QualitySettings } from './quality';
+import { configureHeightFog } from '../world/height_fog';
 
 // Bloom luminance threshold at "standard" ambient scale.
 // Moods scale this up/down so neon halos stay visible at low exposure
@@ -45,11 +46,14 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05060a);
-  // light haze: the vista reaches ~250m, dense fog would swallow the city.
-  // Slightly bumped (0.0045 → 0.0058) so interior depth reads as "air with
-  // particulate" per cozy-cyberpunk reference photos. Still well under the
-  // threshold where 250m city skyline drowns out.
+  // Height-attenuated volumetric fog. The FogExp2 object stays because three
+  // uses its presence (and the FOG_EXP2 define) to switch USE_FOG on and to
+  // feed fogColor/fogDensity; the actual extinction and inscatter now come
+  // from the overridden fog ShaderChunks in world/height_fog.ts, which vary
+  // density with world height. Density here is left at the old value only as
+  // a harmless fallback for any material compiled before the override lands.
   scene.fog = new THREE.FogExp2(0x0c1224, 0.0058);
+  configureHeightFog();
 
   const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 900);
   camera.position.set(0, 1.7, 0);
