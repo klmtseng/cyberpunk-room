@@ -5,6 +5,11 @@ import {
 } from 'postprocessing';
 import type { QualitySettings } from './quality';
 
+// Bloom luminance threshold at "standard" ambient scale.
+// Moods scale this up/down so neon halos stay visible at low exposure
+// and don't over-blow at reading brightness.
+const BASE_THRESHOLD = 0.55;
+
 export interface EngineCtx {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -12,6 +17,14 @@ export interface EngineCtx {
   composer: EffectComposer;
   clock: THREE.Clock;
   settings: QualitySettings;
+  /** Apply a new quality preset without reloading the page.
+   *  Only covers fields that don't require geometry rebuild — caller is
+   *  responsible for gating on needsReload() first (see quality.ts). */
+  applyQuality(next: QualitySettings): void;
+  /** Scale the bloom luminance threshold with the scene's overall exposure.
+   *  @param scale — the mood's ambient multiplier (e.g. 0.35 for cinema).
+   *  Clamped to [0.08, 0.95] so threshold never fully collapses or disappears. */
+  setBloomExposure(scale: number): void;
 }
 
 export function createEngine(canvas: HTMLCanvasElement, settings: QualitySettings): EngineCtx {
@@ -46,20 +59,22 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
   });
   composer.addPass(new RenderPass(scene, camera));
 
-  const effects: any[] = [];
-  if (settings.enableBloom) {
-    effects.push(new BloomEffect({
-      intensity: settings.preset === 'low' ? 0.6 : 1.0,
-      luminanceThreshold: 0.55,
-      luminanceSmoothing: 0.2,
-      mipmapBlur: true,
-    }));
-  }
-  if (settings.enableChromaticAberration) {
-    const ca = new ChromaticAberrationEffect();
-    (ca as any).offset = new THREE.Vector2(0.0012, 0.0012);
-    effects.push(ca);
-  }
+  // All effects are always constructed and placed in a single EffectPass so
+  // that switching quality presets never requires rebuilding the pass or
+  // recompiling shaders. Effects that are "off" have their opacity set to 0
+  // rather than being removed from the pipeline.
+  const bloom = new BloomEffect({
+    intensity: settings.preset === 'low' ? 0.6 : 1.0,
+    luminanceThreshold: BASE_THRESHOLD,
+    luminanceSmoothing: 0.2,
+    mipmapBlur: true,
+  });
+  bloom.blendMode.opacity.value = settings.enableBloom ? 1 : 0;
+
+  const chromaticAberration = new ChromaticAberrationEffect();
+  (chromaticAberration as any).offset = new THREE.Vector2(0.0012, 0.0012);
+  chromaticAberration.blendMode.opacity.value = settings.enableChromaticAberration ? 1 : 0;
+
   // AgX over ACES. Measured on this scene (Firefox, low preset, 6 paired
   // captures across 標準/影院/派對, /tmp/shots + docs/tonemap-agx-compare.md):
   //   near-black pixels (max channel < 0.02)   15.0% → 0.0%   (interior pose)
@@ -72,8 +87,10 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
   // skew in highlights" advantage did NOT show up here — this scene never
   // pushes highlights hard enough to trigger the ACES skew. Cost: zero, same
   // single fullscreen pass, same effect object.
-  effects.push(new ToneMappingEffect({ mode: ToneMappingMode.AGX }));
-  composer.addPass(new EffectPass(camera, ...effects));
+  const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+
+  const effectPass = new EffectPass(camera, bloom, chromaticAberration, toneMapping);
+  composer.addPass(effectPass);
 
   const clock = new THREE.Clock();
 
@@ -85,5 +102,43 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
     camera.updateProjectionMatrix();
   });
 
-  return { renderer, scene, camera, composer, clock, settings };
+  let currentSettings = settings;
+
+  const ctx: EngineCtx = {
+    renderer,
+    scene,
+    camera,
+    composer,
+    clock,
+    get settings() { return currentSettings; },
+
+    applyQuality(next: QualitySettings): void {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio * next.pixelRatio, 2));
+
+      // Shadow map changes take effect on the next frame only after
+      // needsUpdate is set; this is a three.js requirement.
+      if (renderer.shadowMap.enabled !== next.enableShadows) {
+        renderer.shadowMap.enabled = next.enableShadows;
+        renderer.shadowMap.needsUpdate = true;
+      }
+
+      bloom.blendMode.opacity.value = next.enableBloom ? 1 : 0;
+      if (next.enableBloom) {
+        // Preserve intensity tier between low and higher presets
+        bloom.intensity = next.preset === 'low' ? 0.6 : 1.0;
+      }
+      chromaticAberration.blendMode.opacity.value = next.enableChromaticAberration ? 1 : 0;
+
+      currentSettings = next;
+    },
+
+    setBloomExposure(scale: number): void {
+      // Clamp so threshold never fully collapses into "everything blooms" or
+      // rises so high that no neon surpasses it.
+      const threshold = Math.min(0.95, Math.max(0.08, BASE_THRESHOLD * scale));
+      (bloom as any).luminanceMaterial.threshold = threshold;
+    },
+  };
+
+  return ctx;
 }

@@ -135,6 +135,38 @@ export function settingsFor(preset: QualityPreset): QualitySettings {
   return { preset, ...PRESETS[preset] };
 }
 
+// Fields that can be applied to a live EngineCtx without tearing down or
+// rebuilding any geometry, particle systems, or city mesh.
+// NOTE: as of Aug 2026 all four presets differ in buildingCount / rainCount /
+// vehicleCount, so switching between any two named presets always falls into
+// the reload branch. This constant exists so that future callers (power-save
+// mode, mobile downgrade) can flip individual fields at runtime without a page
+// reload, and so the dispatch logic is testable as a pure function.
+export const LIVE_FIELDS: ReadonlyArray<keyof QualitySettings> = [
+  'pixelRatio',
+  'enableShadows',
+  'enableBloom',
+  'enableChromaticAberration',
+  'enableDOF',
+  'volumetricSources',
+  'volumetricSamples',
+  'shadowMapSize',
+  'enablePlanarReflection',
+  'windowRainShader',
+  'windowRainRefraction',
+  'enableWetCity',
+  'enableSSR',
+];
+
+/** Returns true if switching from settings `a` to `b` requires a full page
+ *  reload (geometry rebuild), false if it can be done by applyQuality(). */
+export function needsReload(a: QualitySettings, b: QualitySettings): boolean {
+  for (const key of Object.keys(b) as Array<keyof QualitySettings>) {
+    if (a[key] !== b[key] && !LIVE_FIELDS.includes(key)) return true;
+  }
+  return false;
+}
+
 const STORAGE_KEY = 'neonloft.quality';
 
 export function loadOverride(): QualityPreset | null {

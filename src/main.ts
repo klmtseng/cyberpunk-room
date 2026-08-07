@@ -20,7 +20,7 @@ import { loadLoungeSofas } from './world/lounge_sofas';
 import { buildFlipMosaic, type FlipMosaic } from './world/flip_mosaic';
 import { CyberOS } from './pc/os';
 import { RoomState, type DeviceDef } from './state/room_state';
-import { saveOverride } from './engine/quality';
+import { saveOverride, needsReload } from './engine/quality';
 import { buildVolumetric } from './engine/volumetric';
 import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
 import { t, mountLangToggle } from './lib/i18n';
@@ -557,6 +557,10 @@ async function boot() {
       f.intensity = lights.baseIntensities[i] * (m.fix[i] ?? 1);
       f.color.copy(baseColors[i]); // undo any party-mode hue sweep
     });
+    // Keep bloom knee in sync with overall scene brightness: low-ambient moods
+    // (cinema 0.35) get a lower threshold so neon halos are still visible, while
+    // bright moods (reading 1.35) raise it to avoid over-blooming desk lamps.
+    ctx.setBloomExposure(m.amb);
   };
   registerDevice({
     id: 'mood', value: MOODS[0].name, states: MOODS.map((m) => m.name),
@@ -661,7 +665,20 @@ async function boot() {
       renderer: hw.gpuArchitecture.slice(0, 48),
       pos: ctx.camera.position.toArray().map((v) => v.toFixed(1)).join(', '),
     }),
-    setPresetOverride: (p) => { saveOverride(p); location.reload(); },
+    setPresetOverride: (p) => {
+      saveOverride(p);
+      const next = settingsFor(p);
+      if (needsReload(settings, next)) {
+        // One or more fields require geometry rebuild (e.g. buildingCount,
+        // rainCount, vehicleCount differ between all four named presets as of
+        // Aug 2026) — fall back to a full reload. The live path below will be
+        // exercised once a future caller (power-save, mobile downgrade) creates
+        // a custom QualitySettings that only touches LIVE_FIELDS.
+        location.reload();
+      } else {
+        ctx.applyQuality(next);
+      }
+    },
     currentPreset: () => settings.preset,
     // W5 photoreal hooks
     setFlicker: (on) => city.setFlicker(on),
