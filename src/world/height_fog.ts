@@ -227,13 +227,59 @@ function glsl(p: HeightFogParams): { parsVertex: string; vertex: string; parsFra
 
 let installed = false;
 
-/** Trigger needsUpdate on all fog-enabled materials in the scene. */
-function invalidateFogMaterials(scene: THREE.Scene): void {
+/** Name of the cache-busting define written onto every fog-enabled material. */
+export const FOG_DEFINE = 'NEON_FOG_VARIANT';
+
+/**
+ * Short, deterministic tag for a parameter set. It only has to be stable and
+ * distinct enough to separate the handful of fog configurations a session ever
+ * uses; it is never parsed, only compared. FNV-1a, base36, letter-prefixed so
+ * it stays a valid macro replacement token.
+ */
+function variantTag(params: HeightFogParams): string {
+  const s = JSON.stringify([
+    params.density, params.k, params.nearHaze, params.farGlow,
+    params.glowStart, params.glowEnd, params.glowCeiling, params.glowFloor,
+  ]);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return 'h' + (h >>> 0).toString(36);
+}
+
+/**
+ * Force every fog-enabled material in the scene to recompile against whatever
+ * fog ShaderChunks are installed right now. Pass `null` to mark them as stock.
+ *
+ * `mat.needsUpdate = true` is NOT sufficient on its own. three keys its
+ * compiled-program cache on material parameters, booleans and `defines`
+ * (`getProgramCacheKey`, three.cjs:20980) — the resolved shader *source* is not
+ * part of that key. Swapping the global fog chunks changes the source without
+ * changing the key, so three hands back the previously compiled program and the
+ * toggle silently does nothing. Measured in Firefox at the window pose with the
+ * rain off: a boot-time install moved the frame by 7.65/255 mean abs diff, the
+ * runtime toggle by 1.98 — inside the 1.2-1.9 animation noise floor.
+ *
+ * Writing a variant tag into `defines` changes the cache key, so a real
+ * recompile happens. The tag is derived from the parameters rather than from a
+ * counter deliberately: a counter would mint a fresh program on every press and
+ * leak one per material, since three only releases programs when the material
+ * itself is disposed (three.cjs:29595). Keyed by parameters, toggling off and
+ * back on reuses the two programs already compiled.
+ */
+function invalidateFogMaterials(scene: THREE.Scene, tag: string | null): void {
   scene.traverse((o) => {
     const m = (o as THREE.Mesh).material;
     if (!m) return;
     for (const mat of Array.isArray(m) ? m : [m]) {
-      if ((mat as THREE.Material & { fog?: boolean }).fog) mat.needsUpdate = true;
+      if (!(mat as THREE.Material & { fog?: boolean }).fog) continue;
+      const defines = (mat.defines ?? {}) as Record<string, unknown>;
+      if (tag === null) delete defines[FOG_DEFINE];
+      else defines[FOG_DEFINE] = tag;
+      mat.defines = defines;
+      mat.needsUpdate = true;
     }
   });
 }
@@ -258,7 +304,7 @@ export function configureHeightFog(
   THREE.ShaderChunk.fog_fragment = chunks.fragment;
   installed = true;
 
-  if (scene) invalidateFogMaterials(scene);
+  if (scene) invalidateFogMaterials(scene, variantTag(merged));
   return merged;
 }
 
@@ -285,7 +331,7 @@ export function setHeightFogEnabled(
     THREE.ShaderChunk.fog_fragment     = STOCK_CHUNKS.fog_fragment;
     installed = false;
 
-    if (scene) invalidateFogMaterials(scene);
+    if (scene) invalidateFogMaterials(scene, null);
   }
 }
 

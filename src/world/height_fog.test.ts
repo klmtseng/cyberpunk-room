@@ -12,7 +12,7 @@
 // the other. Shader correctness is only ever established by rendering in a real
 // browser and reading the shaderErrors beacon.
 
-import { opticalDepth, FOG_BASE_Y, DEFAULT_PARAMS, setHeightFogEnabled, isHeightFogInstalled, _STOCK_CHUNKS_FOR_TEST } from './height_fog.ts';
+import { opticalDepth, FOG_BASE_Y, DEFAULT_PARAMS, setHeightFogEnabled, isHeightFogInstalled, FOG_DEFINE, _STOCK_CHUNKS_FOR_TEST } from './height_fog.ts';
 
 let pass = 0, fail = 0;
 function ok(cond: boolean, msg: string) {
@@ -150,6 +150,92 @@ const K = DEFAULT_PARAMS.k;
     THREE.ShaderChunk.fog_fragment === _STOCK_CHUNKS_FOR_TEST.fog_fragment,
     'chunk restore: fog_fragment byte-identical to stock',
   );
+}
+
+// (g) Program-cache busting. Swapping the global fog ShaderChunks does NOT
+//     change three's program cache key, so `needsUpdate` alone hands back the
+//     already-compiled program and the runtime toggle is a silent no-op. This
+//     was measured, not theorised: in Firefox at the window pose with rain off,
+//     boot-time install moved the frame 7.65/255 MAD while the runtime toggle
+//     moved it 1.98, inside the 1.2-1.9 noise floor. The fix writes a
+//     parameter-derived variant tag into material.defines, which IS part of the
+//     cache key (three.cjs getProgramCacheKey). These tests pin that contract.
+{
+  const THREE = await import('three');
+
+  const mkScene = () => {
+    const scene = new THREE.Scene();
+    const fogged = new THREE.Mesh(
+      new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ fog: true }));
+    // The sky shell and additive holograms opt out of fog and must never be
+    // touched by the override — same control used in the rendered measurements.
+    const unfogged = new THREE.Mesh(
+      new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ fog: false }));
+    scene.add(fogged, unfogged);
+    return { scene, fogged, unfogged };
+  };
+
+  const defs = (m: THREE.Mesh) =>
+    ((m.material as THREE.Material).defines ?? {}) as Record<string, unknown>;
+
+  {
+    const { scene, fogged, unfogged } = mkScene();
+    // `needsUpdate` is a write-only setter on Material — it bumps `version`,
+    // which is what the renderer actually reads. Assert on the observable.
+    const v0 = (fogged.material as THREE.Material).version;
+    const u0 = (unfogged.material as THREE.Material).version;
+    setHeightFogEnabled(true, scene);
+    ok(typeof defs(fogged)[FOG_DEFINE] === 'string',
+       'cache bust: enable writes a variant tag onto the fog material');
+    ok((fogged.material as THREE.Material).version > v0,
+       'cache bust: enable bumps material.version (= needsUpdate) on the fog material');
+    ok((unfogged.material as THREE.Material).version === u0,
+       'cache bust: fog:false material is not invalidated');
+    ok(defs(unfogged)[FOG_DEFINE] === undefined,
+       'cache bust: fog:false material is never given the define');
+
+    const onTag = defs(fogged)[FOG_DEFINE];
+    setHeightFogEnabled(false, scene);
+    ok(defs(fogged)[FOG_DEFINE] === undefined,
+       'cache bust: disable removes the define (back to the stock cache key)');
+
+    // Bounded cache: toggling back on with the same params must reproduce the
+    // same tag, so three reuses the program instead of minting a new one.
+    setHeightFogEnabled(true, scene);
+    ok(defs(fogged)[FOG_DEFINE] === onTag,
+       'cache bust: same params → same tag, so re-enabling reuses the program');
+    setHeightFogEnabled(false, scene);
+  }
+
+  {
+    // Different parameters must NOT collide, otherwise a dev retune would show
+    // the previous look because the cached program is still keyed the same.
+    const a = mkScene();
+    setHeightFogEnabled(true, a.scene);
+    const tagDefault = defs(a.fogged)[FOG_DEFINE];
+    setHeightFogEnabled(false, a.scene);
+
+    const b = mkScene();
+    setHeightFogEnabled(true, b.scene, { density: DEFAULT_PARAMS.density * 2 });
+    const tagDenser = defs(b.fogged)[FOG_DEFINE];
+    setHeightFogEnabled(false, b.scene);
+
+    ok(tagDefault !== tagDenser,
+       'cache bust: different params → different tag');
+  }
+
+  {
+    // The whole point is that the toggle survives being called on a scene whose
+    // materials were compiled earlier; nothing here may throw on a material
+    // that has no `defines` object at all.
+    const { scene, fogged } = mkScene();
+    delete (fogged.material as THREE.Material).defines;
+    let threw = false;
+    try { setHeightFogEnabled(true, scene); } catch { threw = true; }
+    ok(!threw && typeof defs(fogged)[FOG_DEFINE] === 'string',
+       'cache bust: material with no defines object is handled');
+    setHeightFogEnabled(false, scene);
+  }
 }
 
 console.log(`height_fog: ${pass} passed, ${fail} failed`);

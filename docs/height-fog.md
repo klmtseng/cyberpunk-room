@@ -217,6 +217,65 @@ moving more than 3 levels.
 Hue shift **0.226 / 255** against a 12 / 255 budget. The `NEAR_HAZE` /
 `FAR_GLOW` split is doing its job: no city magenta reaches the furniture.
 
+## The silent no-op toggle (found when the feature was made opt-in)
+
+Height fog is off by default and toggled from SysMon. The first version of that
+toggle swapped the four `ShaderChunk`s and set `needsUpdate = true` on every
+`fog: true` material — and **did nothing at all**.
+
+three keys its compiled-program cache on material parameters, booleans and
+`defines` (`getProgramCacheKey`, `three.cjs:20980`). The resolved shader
+*source* is not part of that key. Swapping a global `ShaderChunk` changes the
+source without changing the key, so `needsUpdate` produces a cache hit and three
+hands back the program compiled from the *old* chunks. Nothing warns. The scene
+renders, the beacon stays `NEON-OK`, `isHeightFogInstalled()` returns `true`,
+and the unit tests — which only inspect chunk strings — pass.
+
+It was caught by measurement, not by reading code. The comparison that exposed
+it (window pose, rain off, so the noise floor drops from 4.9 to 1.9):
+
+| | whole-frame MAD vs no-fog |
+|---|---|
+| boot-time install (`?fog=1`) | **7.65** |
+| runtime toggle, before the fix | 1.98 ← inside the 1.2–1.9 noise floor |
+| runtime toggle, after the fix | **5.31** |
+
+The fix writes a parameter-derived variant tag into `material.defines`, which
+*is* part of the cache key. The tag is derived from the fog parameters rather
+than from an incrementing counter on purpose: a counter mints a fresh program on
+every button press and leaks one per material, because three only releases
+programs when the material itself is disposed (`three.cjs:29595`). Keyed by
+parameters, off→on→off reuses the two programs already compiled, and a dev
+retune with new parameters still gets a genuine recompile.
+
+Convergence check, with the control this needs — two separate page loads of the
+same URL, since the skyline is seeded (`city.ts:171`) but the animation clock
+restarts:
+
+```
+cross-load noise floor (boot vs boot)  5.914   <- control
+toggle vs boot                         6.392   <- at the floor: converged
+toggle off again vs baseline           1.417   <- same load, reversible
+sky band (fog:false) across all states 57.8-58.2  <- override does not leak
+```
+
+**Generalisation worth keeping:** a global override of a library's shader source
+is invisible to that library's cache. Any such override must also perturb
+something the cache key *does* read, and the only proof that it did is a
+rendered frame — a boolean that says "installed" is describing the chunk string,
+not the pixels.
+
+### Cost: not measured, and the instrument is the reason
+
+Four states (fog on/off × ACES/AgX) at the worst-case pose all returned a median
+frame time of **83.6 ms**, with p10 66.5 and p90 100.0. Those are 5, 4 and 6
+multiples of a 16.67 ms vsync interval — the measurement is quantised, not flat.
+Headless Firefox on this iGPU cannot resolve a sub-frame difference here, so
+**there is no measured cost figure for height fog**, and "we measured no
+difference" must not be reported as "it is free". The default-off choice rests
+on caution and on the shape of the change (extra per-fragment ALU on every
+`fog: true` material), not on a number.
+
 ## Where this most likely breaks
 
 1. **`FOG_BASE_Y` silently desynchronising from `GROUND_Y`.** They are two
@@ -247,6 +306,8 @@ Hue shift **0.226 / 255** against a 12 / 255 budget. The `NEAR_HAZE` /
 - `src/world/height_fog.ts` — chunk override, `configureHeightFog()`, TS oracle
 - `src/world/height_fog.test.ts` — headless numerical tests for the formula
 - `src/engine/renderer.ts` — installs the override at scene construction
+- `src/engine/render_prefs.ts` — the opt-in store (`neonloft.render`), default off
+- `src/pc/os.ts` — the SysMon HEIGHT FOG / TONEMAP buttons
 
 Note the oracle and the GLSL are **two hand-synced implementations of one
 formula**. The test protects the formula's numerical behaviour; it cannot catch
