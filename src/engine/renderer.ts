@@ -60,7 +60,19 @@ export function createEngine(canvas: HTMLCanvasElement, settings: QualitySetting
     (ca as any).offset = new THREE.Vector2(0.0012, 0.0012);
     effects.push(ca);
   }
-  effects.push(new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }));
+  // AgX over ACES. Measured on this scene (Firefox, low preset, 6 paired
+  // captures across 標準/影院/派對, /tmp/shots + docs/tonemap-agx-compare.md):
+  //   near-black pixels (max channel < 0.02)   15.0% → 0.0%   (interior pose)
+  //   stddev of the darkest 40% of the frame    1.17 → 3.69   (= separation)
+  //   highlight saturation (top 2% luminance)  0.541 → 0.376  (AgX desaturates MORE)
+  //   hue drift between the two                median 1-2°    (neither shifts hue here)
+  // So the win is specifically the LOW end: ACES crushes this dark, neon-only
+  // room into flat black and the loft geometry disappears; AgX's longer toe
+  // keeps furniture and wall planes readable. The often-cited AgX "no hue
+  // skew in highlights" advantage did NOT show up here — this scene never
+  // pushes highlights hard enough to trigger the ACES skew. Cost: zero, same
+  // single fullscreen pass, same effect object.
+  effects.push(new ToneMappingEffect({ mode: ToneMappingMode.AGX }));
   composer.addPass(new EffectPass(camera, ...effects));
 
   const clock = new THREE.Clock();
