@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Cyberpunk 2077-style first-person room simulator. Browser-based, WebGPU/WebGL2, WebXR-ready.",
+  "description": "Neon Loft — a browser-based interactive cyberpunk room built with Three.js, with desktop, mobile, and WebXR support.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
