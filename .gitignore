@@ -11,5 +11,7 @@ public/assets/video/*.mp4
 public/assets/music/**
 .vercel
 
-# local dev scratch (breaks tsc, never ship)
-src/dev/
+# local dev scratch (breaks tsc, never ship) — all files except the gate-facing
+# audit module which is imported by both main.ts and tools/gate/check_wall_clip.mjs
+src/dev/*
+!src/dev/placement_audit.ts

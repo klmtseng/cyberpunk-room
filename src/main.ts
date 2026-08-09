@@ -27,6 +27,11 @@ import { buildVolumetric } from './engine/volumetric';
 import { DepthOfFieldEffect, EffectPass } from 'postprocessing';
 import { t, mountLangToggle } from './lib/i18n';
 import { mountCredits } from './lib/credits';
+import {
+  runPlacementAudit as _runPlacementAudit,
+  formatAuditReport as _formatAuditReport,
+  type AuditIssue,
+} from './dev/placement_audit';
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -149,63 +154,15 @@ async function boot() {
   const props = buildProps(ctx);
 
   // Placement audit — shared by `window.neon.audit` (dev hook) and the
-  // CyberOS terminal `audit` command. Walks the scene graphs and flags
-  // meshes that are embedded in architectural walls, sunk below the floor,
-  // or overlapping each other by >25% of their volume.
-  type AuditIssue = { kind: string; name: string; detail: string };
-  const runPlacementAudit = (): AuditIssue[] => {
-    const issues: AuditIssue[] = [];
-    const wallSlabs = [
-      new THREE.Box3(new THREE.Vector3(-6.125, -1, -7.2), new THREE.Vector3(-5.875, 7, 7.2)),
-      new THREE.Box3(new THREE.Vector3(5.875, -1, -7.2), new THREE.Vector3(6.125, 7, 7.2)),
-      new THREE.Box3(new THREE.Vector3(-6.2, -1, -7.125), new THREE.Vector3(6.2, 7, -6.875)),
-      new THREE.Box3(new THREE.Vector3(-6.2, -1, 6.875), new THREE.Vector3(6.2, 7, 7.125)),
-    ];
-    const meshes: Array<{ m: THREE.Mesh; box: THREE.Box3; vol: number }> = [];
-    for (const grp of [room.group, props.group]) {
-      grp.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh || !mesh.visible) return;
-        const box = new THREE.Box3().setFromObject(mesh);
-        if (!isFinite(box.min.x)) return;
-        const s = new THREE.Vector3();
-        box.getSize(s);
-        meshes.push({ m: mesh, box, vol: s.x * s.y * s.z });
-      });
-    }
-    const label = (mesh: THREE.Mesh) =>
-      mesh.name || `${mesh.geometry.type}@${mesh.position.toArray().map((v) => v.toFixed(2))}`;
-    for (const { m, box } of meshes) {
-      const c = new THREE.Vector3();
-      box.getCenter(c);
-      for (const slab of wallSlabs) {
-        if (slab.containsPoint(c)) {
-          issues.push({ kind: 'IN-WALL', name: label(m), detail: c.toArray().map((v) => v.toFixed(2)).join(',') });
-        }
-      }
-      if (box.min.y < -0.03 && box.min.y > -3) {
-        issues.push({ kind: 'BELOW-FLOOR', name: label(m), detail: `minY=${box.min.y.toFixed(3)}` });
-      }
-    }
-    const big = meshes.filter((x) => x.vol > 0.02 && x.m.name);
-    for (let i = 0; i < big.length; i++) {
-      for (let j = i + 1; j < big.length; j++) {
-        const a = big[i], b = big[j];
-        if (a.box.intersectsBox(b.box)) {
-          const inter = a.box.clone().intersect(b.box);
-          const s = new THREE.Vector3();
-          inter.getSize(s);
-          const overlap = s.x * s.y * s.z;
-          if (overlap > 0.25 * Math.min(a.vol, b.vol)) {
-            issues.push({ kind: 'OVERLAP', name: `${label(a.m)} × ${label(b.m)}`, detail: `${(overlap * 1000).toFixed(0)}L` });
-          }
-        }
-      }
-    }
-    return issues;
-  };
+  // CyberOS terminal `audit` command.  Logic lives in src/dev/placement_audit.ts
+  // so the headless gate (tools/gate/check_wall_clip.mjs) can run the same
+  // checks without a renderer.
 
-  /** Format the audit issues for terminal display. */
+  /** Returns the raw issue list — used by window.neon.audit (dev hook). */
+  const runPlacementAudit = (): AuditIssue[] =>
+    _runPlacementAudit([room.group, props.group]).issues;
+
+  /** Format the audit issues for CyberOS terminal display (i18n strings). */
   const formatAuditReport = (): string => {
     const issues = runPlacementAudit();
     if (issues.length === 0) {

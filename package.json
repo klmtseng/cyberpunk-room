@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gate": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/check_wall_clip.mjs"
   },
   "dependencies": {
     "postprocessing": "^6.36.0",
