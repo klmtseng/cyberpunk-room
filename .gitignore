@@ -10,3 +10,6 @@ public/assets/hdri/*.hdr
 public/assets/video/*.mp4
 public/assets/music/**
 .vercel
+
+# local dev scratch (breaks tsc, never ship)
+src/dev/
