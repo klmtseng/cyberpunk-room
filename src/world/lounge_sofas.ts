@@ -23,9 +23,9 @@ export async function loadLoungeSofas(): Promise<LoungeSofas> {
   const texLoader = new THREE.TextureLoader();
 
   // Shared upholstery material for the custom build (Polyhaven leather PBR)
-  const upDiff  = texLoader.load('/assets/textures/sofa/leather_white_diff_1k.jpg');
-  const upNorm  = texLoader.load('/assets/textures/sofa/leather_white_nor_gl_1k.jpg');
-  const upRough = texLoader.load('/assets/textures/sofa/leather_white_rough_1k.jpg');
+  const upDiff  = texLoader.load('/assets/textures/sofa/leather_white_diff_1k.webp');
+  const upNorm  = texLoader.load('/assets/textures/sofa/leather_white_nor_gl_1k.webp');
+  const upRough = texLoader.load('/assets/textures/sofa/leather_white_rough_1k.webp');
   for (const t of [upDiff, upNorm, upRough]) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(2, 2);

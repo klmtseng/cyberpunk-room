@@ -113,9 +113,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   // keep the cheaper procedural texture above.
   // See THIRD_PARTY_ASSETS.md for source/license details.
   const texLoader = new THREE.TextureLoader();
-  const sofaDiff = texLoader.load('/assets/textures/sofa/leather_white_diff_1k.jpg');
-  const sofaNorm = texLoader.load('/assets/textures/sofa/leather_white_nor_gl_1k.jpg');
-  const sofaRough = texLoader.load('/assets/textures/sofa/leather_white_rough_1k.jpg');
+  const sofaDiff = texLoader.load('/assets/textures/sofa/leather_white_diff_1k.webp');
+  const sofaNorm = texLoader.load('/assets/textures/sofa/leather_white_nor_gl_1k.webp');
+  const sofaRough = texLoader.load('/assets/textures/sofa/leather_white_rough_1k.webp');
   for (const t of [sofaDiff, sofaNorm, sofaRough]) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(1.6, 1.6);            // tile so the weave reads at sofa scale

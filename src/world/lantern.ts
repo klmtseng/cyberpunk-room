@@ -183,8 +183,8 @@ export async function buildBarLantern(
   return buildLantern({
     position,
     modelUrl: '/assets/models/bar_lantern.glb',
-    mosaicUrl: '/assets/textures/lantern_mosaic.png',
-    roughUrl: '/assets/textures/lantern_mosaic_rough.png',
+    mosaicUrl: '/assets/textures/lantern_mosaic.webp',
+    roughUrl: '/assets/textures/lantern_mosaic_rough.webp',
     bodyCentreY: 0.098,
     proxyRadius: 0.072,
     brightnessMode: 'bar',
@@ -200,8 +200,8 @@ export async function buildDeskLantern(
   return buildLantern({
     position,
     modelUrl: '/assets/models/desk_lantern.glb',
-    mosaicUrl: '/assets/textures/desk_lantern_mosaic.png',
-    roughUrl: '/assets/textures/desk_lantern_mosaic_rough.png',
+    mosaicUrl: '/assets/textures/desk_lantern_mosaic.webp',
+    roughUrl: '/assets/textures/desk_lantern_mosaic_rough.webp',
     // egg body centre sits ~12cm above prop origin per the Blender build
     bodyCentreY: 0.12,
     proxyRadius: 0.082,
