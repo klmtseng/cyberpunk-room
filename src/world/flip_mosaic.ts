@@ -49,12 +49,12 @@ export interface FlipMosaic {
   update(t: number, dt: number): void;
 }
 
-// Local videos bundled under public/assets/video. Mirrors city.ts so we don't
-// drag in a circular dep — the holo-ad pipeline also points here.
+// Local videos bundled under public/assets/video. Only cc/* clips ship in prod;
+// hoload_* were gitignored dev-only content and have been removed.
 const TV_PLAYLIST: Array<{ url: string; label: string }> = [
-  { url: '/assets/video/hoload_TW-T7iP5xvk.mp4', label: 'MEGACITY LOOP' },
-  { url: '/assets/video/hoload_pyR8g6a10R0.mp4', label: 'I OWN TIME' },
-  { url: '/assets/video/hoload_mcl_fEI7nFU.mp4', label: 'Mr. Whitey™' },
+  { url: '/assets/video/cc/cc_tokyo_night.mp4', label: 'TOKYO NIGHT' },
+  { url: '/assets/video/cc/cc_highway_night.mp4', label: 'HIGHWAY' },
+  { url: '/assets/video/cc/cc_nasa_launch.mp4', label: 'IGNITE // NASA SLS' },
 ];
 
 export async function buildFlipMosaic(opts: {
