@@ -1130,6 +1130,29 @@ export function buildProps(ctx: EngineCtx): PropsRig {
     artMats.push(mat);
     artFrameMeshes.push(screen);
   });
+  // Seed each frame immediately with a local met-*.webp so frames are never
+  // blank — even when the Met API is rate-limited or offline.  The Met API
+  // upgrade path (artAssign / artTimer) is untouched and will overwrite these
+  // when it succeeds.  Files are read from manifest.json (source === "met") so
+  // no paths are hard-coded here.
+  void (async () => {
+    try {
+      const manifestData: Array<{ id: string; src: string; source: string; label: string }> =
+        await (await fetch('/assets/textures/mosaic_art/manifest.json')).json();
+      const seeds = manifestData.filter((e) => e.source === 'met');
+      if (!seeds.length) return;
+      artMats.forEach((mat, i) => {
+        const entry = seeds[i % seeds.length];
+        artLoader.load('/' + entry.src, (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          mat.emissiveMap = tex;
+          mat.needsUpdate = true;
+        });
+      });
+    } catch {
+      /* manifest unavailable — frames stay at emissive white until artAssign fires */
+    }
+  })();
   artMats.forEach((m, i) => window.setTimeout(() => artAssign(m), 1500 + i * 2500));
   let artTimer = 120;
   updaters.push((_t, dt) => {
