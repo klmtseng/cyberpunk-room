@@ -39,12 +39,12 @@ const CC0_SOURCES: { name: string; url: string }[] = [
 // ── Met open-access artworks — real title + artist, from manifest.json ──
 // The bundled filename (met-*.png) is an internal codename, NOT the artist.
 const MET_WORKS: { filename: string; work: string }[] = [
-  { filename: 'met-hokusai.png', work: 'Ten Verses on Oxherding' },
-  { filename: 'met-hiroshige.png', work: 'Dwarf (one of a pair) — Villeroy' },
-  { filename: 'met-vangogh.png', work: 'The Outer Harbor of Brest — Henri Joseph van Blarenberghe' },
-  { filename: 'met-monet.png', work: 'The Forest in Winter at Sunset — Théodore Rousseau' },
-  { filename: 'met-klimt.png', work: 'The Jabach Family — Charles Le Brun' },
-  { filename: 'met-cezanne.png', work: 'The Nativity with Donors and Saints Jerome and Leonard — Gerard David' },
+  { filename: 'met-hokusai.webp', work: 'Ten Verses on Oxherding' },
+  { filename: 'met-hiroshige.webp', work: 'Dwarf (one of a pair) — Villeroy' },
+  { filename: 'met-vangogh.webp', work: 'The Outer Harbor of Brest — Henri Joseph van Blarenberghe' },
+  { filename: 'met-monet.webp', work: 'The Forest in Winter at Sunset — Théodore Rousseau' },
+  { filename: 'met-klimt.webp', work: 'The Jabach Family — Charles Le Brun' },
+  { filename: 'met-cezanne.webp', work: 'The Nativity with Donors and Saints Jerome and Leonard — Gerard David' },
 ];
 
 const COMMONS_FILE = 'https://commons.wikimedia.org/wiki/File:';

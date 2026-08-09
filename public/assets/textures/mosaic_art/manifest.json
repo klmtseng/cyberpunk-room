@@ -2,37 +2,37 @@
   {
     "id": "met-hokusai",
     "label": "Ten Verses on Oxherding — Met",
-    "src": "assets/textures/mosaic_art/met-hokusai.png",
+    "src": "assets/textures/mosaic_art/met-hokusai.webp",
     "source": "met"
   },
   {
     "id": "met-hiroshige",
     "label": "Dwarf (one of a pair) — Villeroy",
-    "src": "assets/textures/mosaic_art/met-hiroshige.png",
+    "src": "assets/textures/mosaic_art/met-hiroshige.webp",
     "source": "met"
   },
   {
     "id": "met-vangogh",
     "label": "The Outer Harbor of Brest — Henri Joseph van Blarenberghe",
-    "src": "assets/textures/mosaic_art/met-vangogh.png",
+    "src": "assets/textures/mosaic_art/met-vangogh.webp",
     "source": "met"
   },
   {
     "id": "met-monet",
     "label": "The Forest in Winter at Sunset — Théodore Rousseau",
-    "src": "assets/textures/mosaic_art/met-monet.png",
+    "src": "assets/textures/mosaic_art/met-monet.webp",
     "source": "met"
   },
   {
     "id": "met-klimt",
     "label": "The Jabach Family — Charles Le Brun",
-    "src": "assets/textures/mosaic_art/met-klimt.png",
+    "src": "assets/textures/mosaic_art/met-klimt.webp",
     "source": "met"
   },
   {
     "id": "met-cezanne",
     "label": "The Nativity with Donors and Saints Jerome and Leonard — Gerard David",
-    "src": "assets/textures/mosaic_art/met-cezanne.png",
+    "src": "assets/textures/mosaic_art/met-cezanne.webp",
     "source": "met"
   },
   {

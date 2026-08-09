@@ -74,12 +74,12 @@ The Met's Open Access program releases >470,000 images under CC0:
 
 | Asset | Files | Fetched | URL |
 |---|---|---|---|
-| Various artworks (Hokusai, Hiroshige, Klimt, Van Gogh, Monet, Cezanne search results) | `public/assets/textures/mosaic_art/met-*.png` | 2026-06-12 | <https://collectionapi.metmuseum.org> (live search API; images are CC0 only when the `isPublicDomain` flag is true on the object record) |
+| Various artworks (Hokusai, Hiroshige, Klimt, Van Gogh, Monet, Cezanne search results) | `public/assets/textures/mosaic_art/met-*.webp` | 2026-06-12 | <https://collectionapi.metmuseum.org> (live search API; images are CC0 only when the `isPublicDomain` flag is true on the object record) |
 | Rotating gallery frames (paintings cycling on wall art) | runtime fetch in `props.ts` | continuous | same API as above |
 
 The `met-*` filenames are **internal codenames, not the artwork's author**
-(e.g. `met-vangogh.png` is actually *The Outer Harbor of Brest* by Henri
-Joseph van Blarenberghe, `met-monet.png` is *The Forest in Winter at Sunset*
+(e.g. `met-vangogh.webp` is actually *The Outer Harbor of Brest* by Henri
+Joseph van Blarenberghe, `met-monet.webp` is *The Forest in Winter at Sunset*
 by Théodore Rousseau). The real titles and artists are recorded in
 `public/assets/textures/mosaic_art/manifest.json` and surfaced in the
 in-app credits panel.
