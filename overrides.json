@@ -1,1 +1,12 @@
-{ "version": 1, "overrides": {} }
+{
+  "version": 1,
+  "overrides": {
+    "room.monitor.main": {
+      "position": [
+        6.05,
+        1.5,
+        3.4
+      ]
+    }
+  }
+}

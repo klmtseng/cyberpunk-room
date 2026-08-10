@@ -1,8 +1,9 @@
 import { defineConfig, type Plugin } from 'vite';
 import { writeFileSync, existsSync, unlinkSync, readFileSync, readdirSync } from 'fs';
-import { execFile } from 'child_process';
+import { execFile, spawnSync } from 'child_process';
 import { homedir } from 'os';
 import { Readable } from 'stream';
+import { resolve } from 'path';
 
 // Dev-only health beacon: the page POSTs render diagnostics here so we can
 // verify GPU health from the shell on machines without X11 tooling (Wayland).
@@ -273,12 +274,60 @@ function beacon(): Plugin {
           res.end();
         });
       });
+
+      // DEV-only editor save endpoint: receives overrides JSON from the
+      // Blender-style editor, writes it to overrides.json, then runs the
+      // gate and returns the verdict so the HUD can show PASS/FAIL in-browser.
+      server.middlewares.use('/__editor/save', (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        let body = '';
+        req.on('data', (c: string) => { body += c; });
+        req.on('end', () => {
+          // Validate body shape before touching the filesystem
+          let doc: { version: number; overrides: Record<string, unknown> };
+          try {
+            doc = JSON.parse(body);
+          } catch {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, gateExit: -1, gateVerdict: 'invalid JSON body' }));
+            return;
+          }
+          if (doc.version !== 1 || !doc.overrides || typeof doc.overrides !== 'object') {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, gateExit: -1, gateVerdict: 'body must be { version:1, overrides:{} }' }));
+            return;
+          }
+
+          // Write overrides.json (indented for readable diffs)
+          const overridesPath = resolve(process.cwd(), 'overrides.json');
+          writeFileSync(overridesPath, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+
+          // Run gate synchronously; spawnSync won't throw on non-zero exit
+          const gate = spawnSync('npm', ['run', 'gate'], { encoding: 'utf8', cwd: process.cwd() });
+          const gateExit = gate.status ?? -1;
+          const allOutput = (gate.stdout ?? '') + (gate.stderr ?? '');
+          // Extract last non-empty line as the verdict (gate prints summary last)
+          const lines = allOutput.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          const gateVerdict = lines[lines.length - 1] ?? '(no output)';
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: gateExit === 0, gateExit, gateVerdict }));
+        });
+      });
     },
   };
 }
 
 export default defineConfig({
   plugins: [beacon()],
-  server: { host: true, port: 5173 },
+  server: {
+    host: true,
+    port: 5173,
+    watch: {
+      // Don't trigger HMR when overrides.json changes — the editor saves it
+      // at runtime and we don't want a full page reload to wipe editor state.
+      ignored: ['**/overrides.json'],
+    },
+  },
   build: { target: 'es2022', sourcemap: true },
 });

@@ -1327,6 +1327,11 @@ async function boot() {
       editable: { list: () => listEditableIds(), get: (id: string) => getEditable(id) },
       overrides: { applied, orphaned },
     };
+
+    // Mount the Blender-style modal editor (DEV only)
+    import('./editor/editor').then(({ mountEditor }) => {
+      mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer);
+    });
   }
 
   const lerpAngle = (a: number, b: number, k: number) => {
