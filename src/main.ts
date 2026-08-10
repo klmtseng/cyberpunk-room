@@ -157,7 +157,17 @@ async function boot() {
 
   // Apply overrides (position/rotation/scale) from overrides.json to registered
   // editable entities. Must run after buildRoom() so the registry is populated.
-  const { applied, orphaned } = applyOverrides(OVERRIDES_JSON);
+  // In DEV mode, fetch the live file from the server so edits made by the
+  // editor (which writes to disk at runtime) are always picked up on reload,
+  // even though the static import is cached by Vite's module graph.
+  let _overridesData: unknown = OVERRIDES_JSON;
+  if (import.meta.env.DEV) {
+    try {
+      const r = await fetch('/overrides.json', { cache: 'no-store' });
+      if (r.ok) _overridesData = await r.json();
+    } catch { /* fall back to static import */ }
+  }
+  const { applied, orphaned } = applyOverrides(_overridesData);
   if (orphaned.length > 0) {
     console.warn(
       `[neon] orphaned override ids (not found in scene registry): ${orphaned.join(', ')} — orphaned override`,

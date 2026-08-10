@@ -306,9 +306,10 @@ function beacon(): Plugin {
           const gate = spawnSync('npm', ['run', 'gate'], { encoding: 'utf8', cwd: process.cwd() });
           const gateExit = gate.status ?? -1;
           const allOutput = (gate.stdout ?? '') + (gate.stderr ?? '');
-          // Extract last non-empty line as the verdict (gate prints summary last)
+          // Find the specific GATE verdict line (starts with "GATE check_wall_clip:")
           const lines = allOutput.split('\n').map((l: string) => l.trim()).filter(Boolean);
-          const gateVerdict = lines[lines.length - 1] ?? '(no output)';
+          const verdictLine = lines.find((l: string) => l.startsWith('GATE check_wall_clip:'));
+          const gateVerdict = verdictLine ?? lines[lines.length - 1] ?? '(no output)';
 
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: gateExit === 0, gateExit, gateVerdict }));

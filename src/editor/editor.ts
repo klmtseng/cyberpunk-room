@@ -315,9 +315,10 @@ export function mountEditor(
     const id = selectedRoot.userData.editorId as string;
     const obj = selectedRoot;
 
-    const pos: [number, number, number] = [obj.position.x, obj.position.y, obj.position.z];
-    const rot: [number, number, number] = [obj.rotation.x, obj.rotation.y, obj.rotation.z];
-    const scl: [number, number, number] = [obj.scale.x, obj.scale.y, obj.scale.z];
+    const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+    const pos: [number, number, number] = [r6(obj.position.x), r6(obj.position.y), r6(obj.position.z)];
+    const rot: [number, number, number] = [r6(obj.rotation.x), r6(obj.rotation.y), r6(obj.rotation.z)];
+    const scl: [number, number, number] = [r6(obj.scale.x), r6(obj.scale.y), r6(obj.scale.z)];
 
     const authored = AUTHORED_DEFAULTS[id];
     if (authored) {
