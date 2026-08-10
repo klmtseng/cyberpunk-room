@@ -2033,29 +2033,15 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   function makeMonitor(w: number, h: number, glow: number,
                        x: number, y: number, z: number, ry: number): { root: THREE.Group; screen: THREE.Mesh } {
     // ry is the facing direction: plane normal = (sin ry, 0, cos ry)
-    // Entity root — world transform matches the monitor centre so that
-    // overrides applied to root produce identical world geometry.
     const root = new THREE.Group();
     root.position.set(x, y, z);
     root.rotation.y = ry;
     group.add(root);
-
-    // Bezel: in root-local space the centre is (0, 0, 0).
-    const bezel = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.06, h + 0.06, 0.05),
-      matDark,
-    );
+    const bezel = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, h + 0.06, 0.05), matDark);
     root.add(bezel);
-
-    // Stand: in root-local space the centre is directly below the screen.
-    const stand = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.3, 0.06),
-      matSteel,
-    );
+    const stand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), matSteel);
     stand.position.set(0, -h / 2 - 0.18, 0);
     root.add(stand);
-
-    // Screen: sits 0.04 units in front of the bezel along root's local +z axis.
     const screen = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshStandardMaterial({
@@ -2065,7 +2051,6 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
     );
     screen.position.set(0, 0, 0.04); // just in front of the bezel, in local space
     root.add(screen);
-
     return { root, screen };
   }
 }
