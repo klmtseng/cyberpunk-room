@@ -1,7 +1,22 @@
 /**
- * probe.mjs — TEMPORARY diagnostic. Lists every mesh whose world AABB
- * intersects a wall slab, with penetration depth past the inner face.
- * Not part of the gate. Deleted before commit.
+ * probe.mjs — standing diagnostic for the wall-placement gate.
+ *
+ * Lists every mesh whose world AABB intersects a wall slab, with penetration
+ * depth past the inner face, the penetrated fraction of the mesh's own span,
+ * geometry type, world size/centre and visibility.
+ *
+ * This is NOT the gate — it never exits non-zero and asserts nothing. It is the
+ * tool you run when the gate reports something and you need to understand the
+ * geometry behind it, e.g.:
+ *
+ *   node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs \
+ *        --import ./tools/gate/headless-globals.mjs ./tools/gate/probe.mjs
+ *
+ * Kept in version control deliberately: its output is the evidence base for why
+ * check_wall_clip.mjs uses a baseline instead of a depth or fraction threshold.
+ * Buried props penetrate 0.075–0.219 while legal architecture reaches 0.725, and
+ * the fraction ranges overlap too — run this to re-derive that if the scene
+ * changes enough to make a simple threshold viable again.
  */
 import * as THREE from 'three';
 import { buildRoom }  from '../../src/world/room.ts';

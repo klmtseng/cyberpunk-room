@@ -10,7 +10,8 @@
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "test": "for f in src/world/height_fog.test.ts src/engine/render_prefs.test.ts src/engine/quality_live.test.ts src/state/room_state.test.ts; do node --experimental-strip-types \"$f\" || exit 1; done",
-    "gate": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/check_wall_clip.mjs"
+    "gate": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/check_wall_clip.mjs",
+    "gate:baseline": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/regen_baseline.mjs"
   },
   "dependencies": {
     "postprocessing": "^6.36.0",

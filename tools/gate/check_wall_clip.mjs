@@ -1,119 +1,130 @@
 /**
  * check_wall_clip.mjs — deterministic placement gate.
  *
- * Builds the real room+props scene graph headless (no GPU, no browser),
- * runs placement_audit.ts, and exits:
- *   0  = PASS (zero issues and zero non-whitelisted invisible-named meshes)
- *   1  = FAIL (one or more placement issues or suspicious invisible meshes)
+ * Builds the real room+props scene graph headless (no GPU, no browser), takes a
+ * census of every mesh whose world AABB intersects a wall slab, and compares
+ * that census against the checked-in baseline in tools/gate/wall_baseline.json.
  *
- * Usage (from project root):
- *   node --experimental-strip-types \
- *        --loader tools/gate/ts-loader.mjs \
- *        --import tools/gate/headless-globals.mjs \
- *        tools/gate/check_wall_clip.mjs
+ *   0  = PASS (census matches baseline; no placement issues)
+ *   1  = FAIL (a mesh entered a wall, went deeper, or another check tripped)
  *
- * Or via:  npm run gate
+ * WHY A BASELINE AND NOT A GEOMETRIC THRESHOLD
+ * --------------------------------------------
+ * Measured on the known-bad commit 4e9a4dd: the buried monitors penetrate the
+ * right wall by 0.075–0.219 world units, while legitimate architecture (wall
+ * panels, floor risers, skirting) penetrates by up to 0.725. The buried props
+ * are SHALLOWER than the legal geometry, so no depth threshold separates them.
+ * Penetration fraction fails the same way: walls sit at frac=1.000 and window
+ * mullions at frac=1.542, overlapping the buried props' 0.81–2.0.
+ * The only signal that separates the 12 offending sub-meshes is "these are new
+ * relative to a known-good scene", which is what the baseline encodes.
  *
- * S6: This script MUST NOT use  2>/dev/null  or  || true  — any internal
- * error must propagate and cause a non-zero exit, not be swallowed.
+ * NO DEFAULT EXEMPTIONS
+ * ---------------------
+ * Every wall-touching mesh is either reported as an issue or matched to an
+ * explicitly enumerated baseline/whitelist entry. There is no "unnamed geometry
+ * is probably structural" shortcut — that was the bug this rewrite removes.
+ *
+ * Usage (from project root):  npm run gate
+ * Regenerate baseline:        npm run gate:baseline -- --i-am-changing-the-baseline
+ *
+ * This script MUST NOT use  2>/dev/null  or  || true  — any internal error must
+ * propagate and cause a non-zero exit, not be swallowed.
  */
 
-import * as THREE from 'three';
-import { buildRoom }          from '../../src/world/room.ts';
-import { buildProps }         from '../../src/world/props.ts';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+import { buildHeadlessScene } from './scene.mjs';
 import { runPlacementAudit, formatAuditReport } from '../../src/dev/placement_audit.ts';
-import { ROOM_BOUNDS }        from '../../src/world/room.ts';
 
-// ── Minimal fake EngineCtx (no GPU needed) ───────────────────────────────────
+const HERE = dirname(fileURLToPath(import.meta.url));
+const BASELINE_PATH = join(HERE, 'wall_baseline.json');
 
-const scene = new THREE.Scene();
+// ── Load baseline ────────────────────────────────────────────────────────────
+// A missing or empty baseline is a hard failure, not a free pass: an absent
+// baseline would otherwise make every wall-touching mesh "new" or, worse, make
+// a naive implementation exempt everything.
 
-const fakeCtx = {
-  renderer: {
-    capabilities: {
-      isWebGL2: true,
-      maxTextureSize: 4096,
-      getMaxAnisotropy: () => 16,
-    },
-    getPixelRatio:    () => 1,
-    setPixelRatio:    () => {},
-    setSize:          () => {},
-    setAnimationLoop: () => {},
-    shadowMap:        { enabled: false, type: THREE.PCFSoftShadowMap },
-    outputColorSpace: THREE.SRGBColorSpace,
-    toneMapping:      THREE.NoToneMapping,
-    toneMappingExposure: 1,
-    compile:          () => {},
-    extensions:       { get: () => null },
-    info:             { render: { triangles: 0 } },
-  },
-  scene,
-  camera:   new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 100),
-  composer: null,
-  clock:    new THREE.Clock(),
-  settings: {
-    preset:           'high',
-    pixelRatio:       1,
-    enableShadows:    false,
-    enableBloom:      false,
-    enableSSAO:       false,
-    enableHeightFog:  false,
-    ssaoRadius:       0,
-    ssaoIntensity:    0,
-    bloomStrength:    0,
-    bloomRadius:      0,
-    bloomThreshold:   0,
-  },
-  applyQuality:    () => {},
-  setBloomExposure:() => {},
-  setHeightFog:    () => {},
-  setTonemap:      () => {},
-};
+if (!existsSync(BASELINE_PATH)) {
+  console.error(`GATE check_wall_clip: FAIL — baseline missing at ${BASELINE_PATH}`);
+  console.error('Generate it with: npm run gate:baseline -- --i-am-changing-the-baseline');
+  process.exit(1);
+}
 
-// ── Build scene ───────────────────────────────────────────────────────────────
+const baselineDoc = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+const baseline = baselineDoc.entries;
+
+if (!Array.isArray(baseline) || baseline.length === 0) {
+  console.error('GATE check_wall_clip: FAIL — baseline has no entries.');
+  process.exit(1);
+}
+if (baselineDoc.entryCount !== baseline.length) {
+  console.error(
+    `GATE check_wall_clip: FAIL — baseline entryCount=${baselineDoc.entryCount} ` +
+    `disagrees with entries.length=${baseline.length}.`,
+  );
+  process.exit(1);
+}
+
+// ── Build scene and audit ────────────────────────────────────────────────────
 
 console.log('check_wall_clip: building headless scene…');
+console.log(`check_wall_clip: baseline ${BASELINE_PATH} (${baseline.length} entries)`);
 
-const room  = buildRoom(fakeCtx);
-const props = buildProps(fakeCtx);
+const { roots } = buildHeadlessScene();
 
-// ── Run audit ─────────────────────────────────────────────────────────────────
-// Pass groups as an array — avoids re-parenting them which would detach them
-// from their current parent in THREE.js.
-
-const result = runPlacementAudit([room.group, props.group]);
+const result = runPlacementAudit(roots, baseline);
 const report = formatAuditReport(result);
 
 console.log('');
 console.log(report);
 console.log('');
 
-// ── Tally ─────────────────────────────────────────────────────────────────────
+// ── Tally ────────────────────────────────────────────────────────────────────
 
-const wallIssues   = result.issues.filter(i => i.kind === 'IN-WALL').length;
-const floorIssues  = result.issues.filter(i => i.kind === 'BELOW-FLOOR').length;
-const overlapIssues= result.issues.filter(i => i.kind === 'OVERLAP').length;
-const invisFail    = result.skipped.filter(s => s.reason === 'invisible').length;
+const tally = (kind) => result.issues.filter((i) => i.kind === kind).length;
 
-const totalFails = result.issues.length + invisFail;
+const wallNew     = tally('WALL-NEW');
+const wallDeeper  = tally('WALL-DEEPER');
+const inWall      = tally('IN-WALL');
+const floorIssues = tally('BELOW-FLOOR');
+const overlaps    = tally('OVERLAP');
 
-// ── Verdict ───────────────────────────────────────────────────────────────────
+// Baseline entries that matched nothing mean the scene changed under the
+// baseline's feet. That is not automatically a bug, but it must not be silent:
+// it is the signal that the baseline is stale and hiding real coverage loss.
+const staleBaseline = result.baselineUnused.length;
+
+// Meshes we could not test geometrically must also count — an untestable mesh
+// is not a passing mesh.
+const untestable = result.skipped.filter((s) => s.reason === 'infinite-bounds').length;
+
+const totalFails = result.issues.length + staleBaseline + untestable;
+
+// ── Verdict ──────────────────────────────────────────────────────────────────
 
 if (totalFails === 0) {
   console.log(
     `GATE check_wall_clip: PASS ` +
-    `(0 issues; ${result.skipped.length} skipped meshes all accounted for)`
+    `(${result.meshesSeen} meshes checked, ${result.wallTouching} wall-touching, ` +
+    `${result.baselineMatched} matched to ${baseline.length} baseline + ` +
+    `${result.whitelistSize} whitelist entries, 0 issues)`,
   );
   process.exit(0);
 } else {
   const parts = [];
-  if (wallIssues)    parts.push(`${wallIssues} IN-WALL`);
+  if (wallNew)       parts.push(`${wallNew} WALL-NEW`);
+  if (wallDeeper)    parts.push(`${wallDeeper} WALL-DEEPER`);
+  if (inWall)        parts.push(`${inWall} IN-WALL`);
   if (floorIssues)   parts.push(`${floorIssues} BELOW-FLOOR`);
-  if (overlapIssues) parts.push(`${overlapIssues} OVERLAP`);
-  if (invisFail)     parts.push(`${invisFail} INVISIBLE-NAMED (not in whitelist)`);
+  if (overlaps)      parts.push(`${overlaps} OVERLAP`);
+  if (staleBaseline) parts.push(`${staleBaseline} BASELINE-UNUSED`);
+  if (untestable)    parts.push(`${untestable} UNTESTABLE`);
 
   console.log(
-    `GATE check_wall_clip: FAIL (${totalFails} issue(s): ${parts.join(', ')})`
+    `GATE check_wall_clip: FAIL (${totalFails} issue(s): ${parts.join(', ')})`,
   );
   process.exit(1);
 }
