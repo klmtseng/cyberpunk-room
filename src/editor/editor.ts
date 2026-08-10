@@ -153,7 +153,7 @@ export function mountEditor(
         // Hit something but no editable ancestor
         tc.detach();
         selectedRoot = null;
-        savedMessage = '';
+        savedMessage = 'not editable';
         updateHUD();
         console.log('[editor] not editable');
       }

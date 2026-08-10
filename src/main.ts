@@ -162,10 +162,14 @@ async function boot() {
   // even though the static import is cached by Vite's module graph.
   let _overridesData: unknown = OVERRIDES_JSON;
   if (import.meta.env.DEV) {
-    try {
-      const r = await fetch('/overrides.json', { cache: 'no-store' });
-      if (r.ok) _overridesData = await r.json();
-    } catch { /* fall back to static import */ }
+    const r = await fetch('/overrides.json', { cache: 'no-store' });
+    if (!r.ok) {
+      throw new Error(
+        `[neon] DEV: failed to load /overrides.json (HTTP ${r.status} ${r.statusText}). ` +
+        `Editor saves will not take effect. Check that the dev server is running and /overrides.json is readable.`,
+      );
+    }
+    _overridesData = await r.json();
   }
   const { applied, orphaned } = applyOverrides(_overridesData);
   if (orphaned.length > 0) {
