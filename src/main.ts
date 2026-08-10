@@ -32,6 +32,8 @@ import {
   formatAuditReport as _formatAuditReport,
   type AuditIssue,
 } from './dev/placement_audit';
+import { applyOverrides, listEditableIds, getEditable } from './world/editable';
+import OVERRIDES_JSON from '../overrides.json' with { type: 'json' };
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -152,6 +154,15 @@ async function boot() {
 
   step(0.82);
   const props = buildProps(ctx);
+
+  // Apply overrides (position/rotation/scale) from overrides.json to registered
+  // editable entities. Must run after buildRoom() so the registry is populated.
+  const { applied, orphaned } = applyOverrides(OVERRIDES_JSON);
+  if (orphaned.length > 0) {
+    console.warn(
+      `[neon] orphaned override ids (not found in scene registry): ${orphaned.join(', ')} — orphaned override`,
+    );
+  }
 
   // Placement audit — shared by `window.neon.audit` (dev hook) and the
   // CyberOS terminal `audit` command.  Logic lives in src/dev/placement_audit.ts
@@ -1311,6 +1322,10 @@ async function boot() {
       getWeather: () => weatherLevel,
       // placement audit: flags meshes embedded in walls, floating, or overlapping
       audit: () => runPlacementAudit(),
+      ctx,
+      room,
+      editable: { list: () => listEditableIds(), get: (id: string) => getEditable(id) },
+      overrides: { applied, orphaned },
     };
   }
 

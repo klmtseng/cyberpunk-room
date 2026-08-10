@@ -73,7 +73,7 @@ if (baselineDoc.entryCount !== baseline.length) {
 console.log('check_wall_clip: building headless scene…');
 console.log(`check_wall_clip: baseline ${BASELINE_PATH} (${baseline.length} entries)`);
 
-const { roots } = buildHeadlessScene();
+const { roots, overrides } = buildHeadlessScene();
 
 const result = runPlacementAudit(roots, baseline);
 const report = formatAuditReport(result);
@@ -101,7 +101,24 @@ const staleBaseline = result.baselineUnused.length;
 // is not a passing mesh.
 const untestable = result.skipped.filter((s) => s.reason === 'infinite-bounds').length;
 
-const totalFails = result.issues.length + staleBaseline + untestable;
+// Orphaned overrides: ids in overrides.json that have no matching registered
+// entity. Each is an ORPHAN-OVERRIDE issue — the editor pipeline is broken.
+const orphanedOverrides = overrides.orphaned;
+if (orphanedOverrides.length > 0) {
+  for (const id of orphanedOverrides) {
+    console.error(
+      `ORPHAN-OVERRIDE: id "${id}" is in overrides.json but was not found in the scene registry`,
+    );
+  }
+}
+
+const totalFails = result.issues.length + staleBaseline + untestable + orphanedOverrides.length;
+
+// ── Coverage summary line (overrides) ────────────────────────────────────────
+
+console.log(
+  `overrides applied=${overrides.applied.length} orphaned=${orphanedOverrides.length}`,
+);
 
 // ── Verdict ──────────────────────────────────────────────────────────────────
 
@@ -115,13 +132,14 @@ if (totalFails === 0) {
   process.exit(0);
 } else {
   const parts = [];
-  if (wallNew)       parts.push(`${wallNew} WALL-NEW`);
-  if (wallDeeper)    parts.push(`${wallDeeper} WALL-DEEPER`);
-  if (inWall)        parts.push(`${inWall} IN-WALL`);
-  if (floorIssues)   parts.push(`${floorIssues} BELOW-FLOOR`);
-  if (overlaps)      parts.push(`${overlaps} OVERLAP`);
-  if (staleBaseline) parts.push(`${staleBaseline} BASELINE-UNUSED`);
-  if (untestable)    parts.push(`${untestable} UNTESTABLE`);
+  if (wallNew)                    parts.push(`${wallNew} WALL-NEW`);
+  if (wallDeeper)                 parts.push(`${wallDeeper} WALL-DEEPER`);
+  if (inWall)                     parts.push(`${inWall} IN-WALL`);
+  if (floorIssues)                parts.push(`${floorIssues} BELOW-FLOOR`);
+  if (overlaps)                   parts.push(`${overlaps} OVERLAP`);
+  if (staleBaseline)              parts.push(`${staleBaseline} BASELINE-UNUSED`);
+  if (untestable)                 parts.push(`${untestable} UNTESTABLE`);
+  if (orphanedOverrides.length)   parts.push(`${orphanedOverrides.length} ORPHAN-OVERRIDE`);
 
   console.log(
     `GATE check_wall_clip: FAIL (${totalFails} issue(s): ${parts.join(', ')})`,

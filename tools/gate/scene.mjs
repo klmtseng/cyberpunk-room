@@ -12,8 +12,10 @@
  */
 
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
 import { buildRoom }  from '../../src/world/room.ts';
 import { buildProps } from '../../src/world/props.ts';
+import { applyOverrides } from '../../src/world/editable.ts';
 
 export function buildHeadlessScene() {
   const scene = new THREE.Scene();
@@ -63,5 +65,17 @@ export function buildHeadlessScene() {
   const room  = buildRoom(fakeCtx);
   const props = buildProps(fakeCtx);
 
-  return { scene, room, props, roots: [room.group, props.group] };
+  // Update world matrices so that sub-group children (e.g. monitor entity root)
+  // have correct matrixWorld before the audit calls setFromObject().
+  // In the browser the renderer does this automatically; headless has no renderer.
+  room.group.updateMatrixWorld(true);
+  props.group.updateMatrixWorld(true);
+
+  // Apply overrides using the same path-resolved approach so the gate sees
+  // the same overrides as the browser runtime.
+  const overridesPath = new URL('../../overrides.json', import.meta.url);
+  const overridesDoc = JSON.parse(readFileSync(overridesPath, 'utf8'));
+  const overrides = applyOverrides(overridesDoc);
+
+  return { scene, room, props, roots: [room.group, props.group], overrides };
 }

@@ -5,6 +5,7 @@ import { BOOKS, type Book } from '../lib/books';
 import { buildAdWall } from './ad_wall';
 import { t as i18n } from '../lib/i18n';
 import { buildWindowRainMaterial, type WindowRainHandle } from './shaders/window_rain.glsl';
+import { resetEditableRegistry, registerEditable } from './editable';
 
 export interface AABB { min: THREE.Vector3; max: THREE.Vector3; }
 
@@ -67,6 +68,7 @@ const STAIR_X0 = -6, STAIR_X1 = -4.75;   // stair footprint (left wall)
 const STAIR_Z_BOTTOM = 2, STAIR_Z_TOP = -2; // ramp from h=0 to h=MEZZ_Y
 
 export function buildRoom(ctx: EngineCtx): RoomBuild {
+  resetEditableRegistry();
   const group = new THREE.Group();
   group.name = 'Room';
   const walls: AABB[] = [];
@@ -672,8 +674,9 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   box(0.22, 0.05, 0.95, matDark, 5.75, 0.83, 3.4);
 
   // triple monitors — all face -x (toward chair), arranged along z
-  const monitorPlane = makeMonitor(1.1, 0.62, 0x5af2ff, 5.80, 1.50, 3.4, -Math.PI/2);
-  monitorPlane.name = 'Monitor';
+  const mainMon = makeMonitor(1.1, 0.62, 0x5af2ff, 5.80, 1.50, 3.4, -Math.PI/2);
+  mainMon.screen.name = 'Monitor';
+  registerEditable(mainMon.root, 'room.monitor.main');
   makeMonitor(0.62, 0.5, 0x39ff88, 5.74, 1.40, 3.02, -Math.PI/2 + 0.3);
   makeMonitor(0.62, 0.5, 0xff2bdb, 5.74, 1.40, 3.78, -Math.PI/2 - 0.3);
 
@@ -1994,7 +1997,7 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
   const update = (t: number) => { for (const f of animated) f(t); };
 
   return {
-    group, walls, windowPlane, windowRain, monitorPlane, heightAt, update,
+    group, walls, windowPlane, windowRain, monitorPlane: mainMon.screen, heightAt, update,
     bathroom: {
       door, toggleDoor, toilet: toiletSeat, mirror, shower: showerHead, toggleShower,
       setRealWeather: (w) => {
@@ -2028,11 +2031,31 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
 
   // ---------- helpers ----------
   function makeMonitor(w: number, h: number, glow: number,
-                       x: number, y: number, z: number, ry: number): THREE.Mesh {
+                       x: number, y: number, z: number, ry: number): { root: THREE.Group; screen: THREE.Mesh } {
     // ry is the facing direction: plane normal = (sin ry, 0, cos ry)
-    const nx = Math.sin(ry), nz = Math.cos(ry);
-    box(w + 0.06, h + 0.06, 0.05, matDark, x, y, z, ry);
-    box(0.06, 0.3, 0.06, matSteel, x, y - h/2 - 0.18, z, ry);
+    // Entity root — world transform matches the monitor centre so that
+    // overrides applied to root produce identical world geometry.
+    const root = new THREE.Group();
+    root.position.set(x, y, z);
+    root.rotation.y = ry;
+    group.add(root);
+
+    // Bezel: in root-local space the centre is (0, 0, 0).
+    const bezel = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.06, h + 0.06, 0.05),
+      matDark,
+    );
+    root.add(bezel);
+
+    // Stand: in root-local space the centre is directly below the screen.
+    const stand = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.3, 0.06),
+      matSteel,
+    );
+    stand.position.set(0, -h / 2 - 0.18, 0);
+    root.add(stand);
+
+    // Screen: sits 0.04 units in front of the bezel along root's local +z axis.
     const screen = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshStandardMaterial({
@@ -2040,10 +2063,10 @@ export function buildRoom(ctx: EngineCtx): RoomBuild {
         emissiveMap: makeCodeTexture(glow),
       }),
     );
-    screen.position.set(x + nx * 0.04, y, z + nz * 0.04); // just in front of the bezel
-    screen.rotation.y = ry;
-    group.add(screen);
-    return screen;
+    screen.position.set(0, 0, 0.04); // just in front of the bezel, in local space
+    root.add(screen);
+
+    return { root, screen };
   }
 }
 
