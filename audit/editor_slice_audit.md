@@ -6,8 +6,11 @@ T3 (fitness) not run — not requested.
 **Domain packs:** system-review (S1–S7) + code. Not a quantitative-research audit.
 
 Verdict summary: **2 of 7 claims fail, 1 is true-but-narrower-than-stated, 4 hold.**
-Both failures were fixed or documented in `773407e`; one (T5) cannot be fixed without
-an outward-facing action and is left standing as a withdrawn claim.
+Neither failure is repaired as of this commit. T2 lost two of its three reproduced
+escapes in `773407e` but the third (§4 O-1) is still open, so the claim remains false.
+T5 cannot be fixed without an outward-facing action and stands as a withdrawn claim.
+This audit is therefore **not a pass**; it is a record of what is true, what was
+repaired, and what is still broken on purpose.
 
 ---
 
@@ -23,7 +26,7 @@ builder never put up for audit but which shares the "audited" halo.
 | C1 | Semantic IDs do not depend on build order | **PASS — but tautological, and an adjacent order dependency is unguarded** |
 | C2 | Editor writes go through the same build path the gate uses | **PASS (verifiable, not tautological)** |
 | T1 | Registry lifecycle is the caller's job, and gate/runtime agree | **PASS** |
-| T2 | The editor owns input exclusively while open | **FAIL — two independent escapes, both reproduced** |
+| T2 | The editor owns input exclusively while open | **FAIL — three independent escapes reproduced; two fixed in `773407e`, the third (§4 O-1) still open, so the claim is still false at this commit** |
 | T3 | Override validation is two-phase and never half-applies | **PASS as now worded; the earlier wording overclaimed** |
 | T4 | Save is transactional (gate FAIL ⇒ file unchanged); read failure aborts | **PASS (control pair run)** |
 | T5 | CI runs `npm run verify` | **FAIL — has never run once** |
