@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { getEditable, listEditableIds, getAuthoredTransform } from '../world/editable';
+import { computeOverrides } from './override_merge';
 import type { EngineCtx } from '../engine/renderer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,13 +51,6 @@ interface OverridesDoc {
   overrides: Record<string, OverrideEntry>;
 }
 
-const EPSILON = 1e-5;
-
-function vec3Near(a: [number, number, number], b: [number, number, number]): boolean {
-  return Math.abs(a[0] - b[0]) < EPSILON
-    && Math.abs(a[1] - b[1]) < EPSILON
-    && Math.abs(a[2] - b[2]) < EPSILON;
-}
 
 // ── Main mount function ───────────────────────────────────────────────────────
 
@@ -346,39 +340,38 @@ export function mountEditor(
       return;
     }
 
-    const merged: Record<string, OverrideEntry> = { ...existing.overrides };
-
-    // Write all currently modified editables (only entities where we have
-    // a selected root for now — extend to "all dirty" later).
-    // For the vertical slice we save the selected entity.
-    const id = selectedRoot.userData.editorId as string;
-    const obj = selectedRoot;
-
-    const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
-    const pos: [number, number, number] = [r6(obj.position.x), r6(obj.position.y), r6(obj.position.z)];
-    const rot: [number, number, number] = [r6(obj.rotation.x), r6(obj.rotation.y), r6(obj.rotation.z)];
-    const scl: [number, number, number] = [r6(obj.scale.x), r6(obj.scale.y), r6(obj.scale.z)];
-
-    const authored = getAuthoredTransform(id);
-    if (authored === undefined) {
-      // ID not in registry — should not happen if the user selected via the editor,
-      // but guard explicitly rather than silently using default-0 values.
-      savedMessage = `✗ save aborted: "${id}" is not in the editable registry`;
+    // Guard: the currently selected entity must be in the registry.
+    // If not, abort rather than silently saving incomplete state.
+    const selectedId = selectedRoot.userData.editorId as string;
+    if (getAuthoredTransform(selectedId) === undefined) {
+      savedMessage = `✗ save aborted: "${selectedId}" is not in the editable registry`;
       updateHUD();
       return;
     }
-    // Only write fields that differ from authored defaults
-    const entry: OverrideEntry = {};
-    if (!vec3Near(pos, authored.position)) entry.position = pos;
-    if (!vec3Near(rot, authored.rotation)) entry.rotation = rot;
-    if (!vec3Near(scl, authored.scale)) entry.scale = scl;
 
-    if (Object.keys(entry).length > 0) {
-      merged[id] = entry;
-    } else {
-      // All fields match authored → remove the override (keep file clean)
-      delete merged[id];
-    }
+    // Walk every registered editable and write all transforms that differ from
+    // their authored defaults. Entities whose authored transform cannot be looked
+    // up are skipped with a console warning (they do not abort the whole save).
+    const merged = computeOverrides(
+      existing.overrides,
+      listEditableIds(),
+      (id) => {
+        const obj = getEditable(id);
+        if (!obj) return undefined;
+        return {
+          position: [obj.position.x, obj.position.y, obj.position.z],
+          rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
+          scale:    [obj.scale.x,    obj.scale.y,    obj.scale.z],
+        };
+      },
+      (id) => {
+        const t = getAuthoredTransform(id);
+        if (t === undefined) {
+          console.warn(`[editor] save: skipping "${id}" — not in authored registry`);
+        }
+        return t;
+      },
+    );
 
     const doc: OverridesDoc = { version: 1, overrides: merged };
 
