@@ -32,7 +32,7 @@ import {
   formatAuditReport as _formatAuditReport,
   type AuditIssue,
 } from './dev/placement_audit';
-import { applyOverrides, listEditableIds, getEditable } from './world/editable';
+import { applyOverrides, listEditableIds, getEditable, resetEditableRegistry } from './world/editable';
 import OVERRIDES_JSON from '../overrides.json' with { type: 'json' };
 
 // Diagnostic beacon: surface render health via document.title so any browser
@@ -86,6 +86,7 @@ async function boot() {
 
   step(0.5);
   const lights = installLighting(ctx);
+  resetEditableRegistry(); // T3: reset before any builder (buildRoom, buildProps, etc.)
   const room = buildRoom(ctx);
   const city = buildCity(ctx);
   const rain = buildRain(ctx);
@@ -1344,7 +1345,26 @@ async function boot() {
 
     // Mount the Blender-style modal editor (DEV only)
     import('./editor/editor').then(({ mountEditor }) => {
-      mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer);
+      // T2: input adapter — editor takes exclusive ownership while open.
+      let _prevEnabled = true;
+      let _editorBlockClick = false;
+      const editorInputAdapter = {
+        acquire() {
+          _prevEnabled = controls.enabled;
+          controls.enabled = false;
+          if (document.pointerLockElement) document.exitPointerLock();
+          _editorBlockClick = true;
+        },
+        release() {
+          controls.enabled = _prevEnabled;
+          _editorBlockClick = false;
+        },
+      };
+      // Patch the canvas click handler to skip pointer-lock while editor owns input.
+      canvas.addEventListener('click', () => {
+        if (_editorBlockClick) return;
+      }, true); // capturing phase runs before the existing bubble-phase handler
+      mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer, editorInputAdapter);
     });
   }
 

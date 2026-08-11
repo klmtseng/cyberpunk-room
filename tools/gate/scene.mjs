@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
 import { buildRoom }  from '../../src/world/room.ts';
 import { buildProps } from '../../src/world/props.ts';
-import { applyOverrides } from '../../src/world/editable.ts';
+import { applyOverrides, resetEditableRegistry } from '../../src/world/editable.ts';
 
 export function buildHeadlessScene() {
   const scene = new THREE.Scene();
@@ -62,6 +62,7 @@ export function buildHeadlessScene() {
     setTonemap:       () => {},
   };
 
+  resetEditableRegistry(); // T3: reset before any builder
   const room  = buildRoom(fakeCtx);
   const props = buildProps(fakeCtx);
 

@@ -5,7 +5,7 @@ import { BOOKS, type Book } from '../lib/books';
 import { buildAdWall } from './ad_wall';
 import { t as i18n } from '../lib/i18n';
 import { buildWindowRainMaterial, type WindowRainHandle } from './shaders/window_rain.glsl';
-import { resetEditableRegistry, registerEditable } from './editable';
+import { registerEditable } from './editable';
 
 export interface AABB { min: THREE.Vector3; max: THREE.Vector3; }
 
@@ -68,7 +68,6 @@ const STAIR_X0 = -6, STAIR_X1 = -4.75;   // stair footprint (left wall)
 const STAIR_Z_BOTTOM = 2, STAIR_Z_TOP = -2; // ramp from h=0 to h=MEZZ_Y
 
 export function buildRoom(ctx: EngineCtx): RoomBuild {
-  resetEditableRegistry();
   const group = new THREE.Group();
   group.name = 'Room';
   const walls: AABB[] = [];

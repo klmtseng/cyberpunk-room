@@ -18,7 +18,7 @@
 
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { getEditable, listEditableIds } from '../world/editable';
+import { getEditable, listEditableIds, getAuthoredTransform } from '../world/editable';
 import type { EngineCtx } from '../engine/renderer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,21 +50,6 @@ interface OverridesDoc {
   overrides: Record<string, OverrideEntry>;
 }
 
-// ── Authored defaults for known entities ──────────────────────────────────────
-// Used to skip writing overrides for values that match the original authored
-// position. Keys must match registry IDs.
-const AUTHORED_DEFAULTS: Record<string, {
-  position: [number, number, number];
-  rotation: [number, number, number];
-  scale: [number, number, number];
-}> = {
-  'room.monitor.main': {
-    position: [5.80, 1.50, 3.40],
-    rotation: [0, -Math.PI / 2, 0],
-    scale: [1, 1, 1],
-  },
-};
-
 const EPSILON = 1e-5;
 
 function vec3Near(a: [number, number, number], b: [number, number, number]): boolean {
@@ -75,11 +60,19 @@ function vec3Near(a: [number, number, number], b: [number, number, number]): boo
 
 // ── Main mount function ───────────────────────────────────────────────────────
 
+export interface EditorInputAdapter {
+  /** Take exclusive input ownership: disable player controls, exit pointer lock. */
+  acquire(): void;
+  /** Release input ownership: restore player controls to their pre-acquire state. */
+  release(): void;
+}
+
 export function mountEditor(
   ctx: EngineCtx,
   _scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   renderer: THREE.WebGLRenderer,
+  inputAdapter?: EditorInputAdapter,
   orbitControls?: { enabled: boolean },
 ): void {
   const scene = ctx.scene;
@@ -255,8 +248,14 @@ export function mountEditor(
     // F2 always toggles editor, regardless of state
     if (e.key === 'F2') {
       editorEnabled = !editorEnabled;
-      if (!editorEnabled && modal.active) cancelModal();
-      if (!editorEnabled) { tc.detach(); selectedRoot = null; }
+      if (editorEnabled) {
+        inputAdapter?.acquire();
+      } else {
+        if (modal.active) cancelModal();
+        tc.detach();
+        selectedRoot = null;
+        inputAdapter?.release();
+      }
       updateHUD();
       return;
     }
@@ -300,12 +299,23 @@ export function mountEditor(
   async function saveOverrides() {
     if (!selectedRoot) { savedMessage = '⚠ nothing selected'; updateHUD(); return; }
 
-    // Fetch current overrides.json from the server to merge with
-    let existing: OverridesDoc = { version: 1, overrides: {} };
+    // Fetch current overrides.json from the server to merge with.
+    // If the fetch fails (network error or non-OK status) we ABORT the save:
+    // proceeding with an empty base would erase overrides for other entities.
+    let existing: OverridesDoc;
     try {
       const r = await fetch('/overrides.json', { cache: 'no-store' });
-      if (r.ok) existing = await r.json() as OverridesDoc;
-    } catch { /* start fresh */ }
+      if (!r.ok) {
+        savedMessage = `✗ save aborted: could not read /overrides.json (HTTP ${r.status} ${r.statusText})`;
+        updateHUD();
+        return;
+      }
+      existing = await r.json() as OverridesDoc;
+    } catch (fetchErr) {
+      savedMessage = `✗ save aborted: could not read /overrides.json — ${String(fetchErr).slice(0, 80)}`;
+      updateHUD();
+      return;
+    }
 
     const merged: Record<string, OverrideEntry> = { ...existing.overrides };
 
@@ -320,23 +330,25 @@ export function mountEditor(
     const rot: [number, number, number] = [r6(obj.rotation.x), r6(obj.rotation.y), r6(obj.rotation.z)];
     const scl: [number, number, number] = [r6(obj.scale.x), r6(obj.scale.y), r6(obj.scale.z)];
 
-    const authored = AUTHORED_DEFAULTS[id];
-    if (authored) {
-      // Only write fields that differ from authored defaults
-      const entry: OverrideEntry = {};
-      if (!vec3Near(pos, authored.position)) entry.position = pos;
-      if (!vec3Near(rot, authored.rotation)) entry.rotation = rot;
-      if (!vec3Near(scl, authored.scale)) entry.scale = scl;
+    const authored = getAuthoredTransform(id);
+    if (authored === undefined) {
+      // ID not in registry — should not happen if the user selected via the editor,
+      // but guard explicitly rather than silently using default-0 values.
+      savedMessage = `✗ save aborted: "${id}" is not in the editable registry`;
+      updateHUD();
+      return;
+    }
+    // Only write fields that differ from authored defaults
+    const entry: OverrideEntry = {};
+    if (!vec3Near(pos, authored.position)) entry.position = pos;
+    if (!vec3Near(rot, authored.rotation)) entry.rotation = rot;
+    if (!vec3Near(scl, authored.scale)) entry.scale = scl;
 
-      if (Object.keys(entry).length > 0) {
-        merged[id] = entry;
-      } else {
-        // All fields match authored → remove the override (keep file clean)
-        delete merged[id];
-      }
+    if (Object.keys(entry).length > 0) {
+      merged[id] = entry;
     } else {
-      // Unknown entity: always write
-      merged[id] = { position: pos, rotation: rot, scale: scl };
+      // All fields match authored → remove the override (keep file clean)
+      delete merged[id];
     }
 
     const doc: OverridesDoc = { version: 1, overrides: merged };
