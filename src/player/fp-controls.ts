@@ -100,6 +100,11 @@ export class FPControls {
   onLockChange(cb: () => void) { this.listeners.push(cb); }
 
   requestLock() {
+    // When another subsystem owns input (e.g. the DEV editor sets enabled=false),
+    // never grab pointer lock. Without this guard a canvas click still locks the
+    // pointer even though movement keys are disabled, which hides the cursor and
+    // makes the editor unusable.
+    if (!this.enabled) return;
     if (!this.locked && this.domElement.requestPointerLock) {
       this.domElement.requestPointerLock();
     }

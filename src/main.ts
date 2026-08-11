@@ -138,6 +138,11 @@ async function boot() {
     }
   });
   canvas.addEventListener('click', () => {
+    // Another subsystem may own input (the DEV editor sets controls.enabled=false
+    // while it is open). This handler's entire job is to engage player input, so
+    // bail out wholesale rather than guarding each branch — that also covers the
+    // touch path, which fakes lock via setLocked() instead of requestLock().
+    if (!controls.enabled) return;
     if (IS_TOUCH) {
       // Touch path: no pointer-lock (doesn't exist). Fake the locked state
       // so movement code engages, kick audio context, request fullscreen.
@@ -1346,24 +1351,22 @@ async function boot() {
     // Mount the Blender-style modal editor (DEV only)
     import('./editor/editor').then(({ mountEditor }) => {
       // T2: input adapter — editor takes exclusive ownership while open.
+      // controls.enabled is the single source of truth for input ownership:
+      // the canvas click handler and FpControls.requestLock() both check it.
+      // A separate capturing click listener cannot work here — the canvas is the
+      // event target, so at-target listeners fire in registration order and the
+      // existing handler is registered first, before this module is imported.
       let _prevEnabled = true;
-      let _editorBlockClick = false;
       const editorInputAdapter = {
         acquire() {
           _prevEnabled = controls.enabled;
           controls.enabled = false;
           if (document.pointerLockElement) document.exitPointerLock();
-          _editorBlockClick = true;
         },
         release() {
           controls.enabled = _prevEnabled;
-          _editorBlockClick = false;
         },
       };
-      // Patch the canvas click handler to skip pointer-lock while editor owns input.
-      canvas.addEventListener('click', () => {
-        if (_editorBlockClick) return;
-      }, true); // capturing phase runs before the existing bubble-phase handler
       mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer, editorInputAdapter);
     });
   }
