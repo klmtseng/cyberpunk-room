@@ -1,16 +1,21 @@
 # Validity audit — visual editor vertical slice
 
-**Subject:** `cyberpunk-room` visual placement editor, commits `48ebe65..773407e`.
-**Date:** 2026-08-11. **Threat layers run:** T1 (claims false) + T2 (unclaimed but bites).
-T3 (fitness) not run — not requested.
+**Subject:** `cyberpunk-room` visual placement editor, commits `48ebe65..773407e`,
+with a follow-up repair at `61d4206` (§2.1).
+**Date:** 2026-08-11; T2 re-verified 2026-08-12. **Threat layers run:** T1 (claims
+false) + T2 (unclaimed but bites). T3 (fitness) not run — not requested.
 **Domain packs:** system-review (S1–S7) + code. Not a quantitative-research audit.
 
-Verdict summary: **2 of 7 claims fail, 1 is true-but-narrower-than-stated, 4 hold.**
-Neither failure is repaired as of this commit. T2 lost two of its three reproduced
-escapes in `773407e` but the third (§4 O-1) is still open, so the claim remains false.
-T5 cannot be fixed without an outward-facing action and stands as a withdrawn claim.
+Verdict summary **as audited at `773407e`**: **2 of 7 claims fail, 1 is
+true-but-narrower-than-stated, 4 hold.** Neither failure was repaired at that commit.
 This audit is therefore **not a pass**; it is a record of what is true, what was
 repaired, and what is still broken on purpose.
+
+**Status at `61d4206`:** T2's three escapes are now all closed and re-verified against
+detectors that pass in both directions (§2.1). The claim as originally worded is still
+recorded as FAIL, because it was false when made — the repair is a later event, not a
+retroactive correction of the verdict. **T5 remains FAIL** and cannot be fixed without
+an outward-facing action.
 
 ---
 
@@ -26,7 +31,7 @@ builder never put up for audit but which shares the "audited" halo.
 | C1 | Semantic IDs do not depend on build order | **PASS — but tautological, and an adjacent order dependency is unguarded** |
 | C2 | Editor writes go through the same build path the gate uses | **PASS (verifiable, not tautological)** |
 | T1 | Registry lifecycle is the caller's job, and gate/runtime agree | **PASS** |
-| T2 | The editor owns input exclusively while open | **FAIL — three independent escapes reproduced; two fixed in `773407e`, the third (§4 O-1) still open, so the claim is still false at this commit** |
+| T2 | The editor owns input exclusively while open | **FAIL as audited — three independent escapes reproduced. Two were fixed in `773407e`; the third (O-1) needed the ownership refactor and was closed in `61d4206`. All three re-verified closed on 2026-08-12 (§2.1). The verdict stays FAIL: the claim was false when made.** |
 | T3 | Override validation is two-phase and never half-applies | **PASS as now worded; the earlier wording overclaimed** |
 | T4 | Save is transactional (gate FAIL ⇒ file unchanged); read failure aborts | **PASS (control pair run)** |
 | T5 | CI runs `npm run verify` | **FAIL — has never run once** |
@@ -139,6 +144,12 @@ fired; it never checked that a no-op reads as not-fired. v3 above uses one discr
 non-animated observable and adds that missing negative control. Only v3's result is
 evidence.
 
+C-1 was **reproduced but not repaired at `773407e`** — it sits in this section because
+the reproduction is what drove the other changes, not because a fix landed. It is filed
+under §2 rather than §4 in the as-audited document, which is a mis-filing; it was caught
+only when a post-fix harness exploited the leak on current code and it still worked.
+Closed at `61d4206` together with O-1 (§2.1).
+
 **C-2 · `setLocked()` was a second unguarded door** onto the same state as
 `requestLock()`. Touch and XR engage movement through it, so guarding only
 `requestLock()` (`src/player/fp-controls.ts:112`) left a path able to hand input back
@@ -148,6 +159,72 @@ input-ownership harness after the change: `CONTROL_GROUP_VALID=true`,
 `AC7b_CLICK_BLOCKED=true`, `AC7a_RESTORED_ON_F2_OFF=true`.
 
 **A third door is identified but NOT fixed — see §4.**
+
+---
+
+## 2.1 Follow-up repair — input ownership收斂 (`61d4206`, 2026-08-12)
+
+Written after the audit closed, so it is reported separately rather than folded into
+the verdicts above.
+
+The structural root of T2 is that input ownership was a **boolean twelve call sites each
+assigned to**. `stand()`, the sit handler, `setLocked()`, the OS/arcade/reader modes and
+the editor adapter all wrote `controls.enabled` directly, and the adapter additionally
+cached the previous value in `_prevEnabled` — so once another door had written the flag,
+leaving the editor restored a stale one.
+
+`src/player/input_owner.ts` (new) makes a **named owner** the state and the only writer
+of `controls.enabled` / `interact.enabled`. A release is refused unless it is made in the
+name of the current owner, which is what stops `stand()` from taking input back while the
+editor holds it. All twelve direct assignments in `src/main.ts` now route through it, and
+`_prevEnabled` is gone. `tools/gate/input_owner.test.ts` (18 assertions, `npm run
+test:input-owner`) covers refusal, hand-back, the `controls.enabled === interact.enabled`
+invariant, and a positive control that a legitimate transfer still succeeds.
+
+**Independent re-verification** (`/tmp/v_ownership_after.mjs`, run `/tmp/own_after.out`,
+2026-08-12) — written and run by the main thread, not by the agent that wrote the fix:
+
+```
+[1] pointer-lock detector   editor closed plCalls=1, editor open plCalls=0
+    HUD: open="[EDITOR ON] F2 to disable"  closed="[EDITOR OFF] F2 to enable"
+[2] C-1  CONTROL- KeyQ editor closed  "light" -> "light"  fired=false
+         CONTROL+ KeyE editor closed  "light" -> "heavy"  fired=true
+         CONTROL- KeyQ editor open    "heavy" -> "heavy"  fired=false
+         TREATMENT KeyE editor open   "heavy" -> "heavy"  fired=false
+[3] O-1  camera after E = {x:0.4, y:1.18, z:2}  SEATED=true
+         HUD="[EDITOR ON]"  camera after S = {x:0.4, y:1.18, z:2}  (unmoved)
+         plCalls after S + click = 0
+[4] regression  HUD="[EDITOR OFF]"  plCalls=1   camera after S = {x:1.171, y:1.7, z:4}
+
+POINTERLOCK_DETECTOR_VALID=true
+LEAK_DETECTOR_VALID=true   LEAK_STILL_PRESENT=false
+SEATED=true                O1_ESCAPE_STILL_PRESENT=false
+INPUT_RETURNED_AFTER_EDITOR=true   STOOD_UP=true
+```
+
+Phase 4 is not decoration. The refactor's plausible failure mode is the mirror of the
+bug — refusing to hand input *back* — so a run in which the editor never releases would
+also show `O1_ESCAPE_STILL_PRESENT=false`. Phase 4 is what distinguishes "ownership held
+correctly" from "input stuck": after F2 the click grabs the lock again and `S` actually
+leaves the seat.
+
+**Why this harness had to be rewritten.** The pre-fix detector
+(`/tmp/v_interact_leak3.mjs`) found its aiming pose by sweeping the camera *with the
+editor open* and waiting for an interaction prompt — that is, it steered by the very leak
+under test. Once the leak closed no prompt ever appeared, the sweep ran to exhaustion and
+the process died at `timeout 180` (exit 124). **That timeout is not evidence the leak is
+fixed** and is not recorded as such. The replacement aims through the real look pipeline
+instead: fake `document.pointerLockElement` and dispatch `pointerlockchange` so
+`FpControls` believes it is locked (`src/player/fp-controls.ts:124`), then drive yaw and
+pitch with `mousemove` deltas at the real sensitivity
+(`src/player/fp-controls.ts:127-138`). That path behaves identically before and after the
+fix, so one harness produces both readings.
+
+Machine layer re-run independently after the refactor: `npm run verify` exit 0; gate
+`check_wall_clip: PASS (607 meshes checked, 75 wall-touching, 75 matched to 75 baseline
++ 5 whitelist entries, 0 issues)`; 147 assertions across height_fog 47 / render_prefs 19
+/ quality_live 9 / RoomState 25 / placement_audit 21 / editor_pick 8 / input_owner 18,
+0 failed; the containment check still fires on `room.monitor.main`.
 
 ---
 
@@ -245,6 +322,12 @@ Not fixed this round because the correct repair is to make input ownership a sin
 guarded setter rather than a boolean three subsystems assign to — a refactor larger than
 this slice.
 
+**Closed at `61d4206`** by exactly that refactor; re-verified with the same detector
+design in §2.1. Consequence 2 (the swallowed first keypress) was never separately
+reproduced and is not claimed as fixed — the capture-phase listener at `src/main.ts:520`
+still calls `stopPropagation()`; what changed is only that the `stand()` it triggers can
+no longer take input ownership.
+
 ### O-2 · Shrink-to-invisible still passes the gate (H8, severity medium)
 
 `ROOM_ENVELOPE` catches an entity leaving the room. It does not catch one collapsing in
@@ -330,9 +413,9 @@ Nothing above is asserted without a reproduction. Explicitly:
 | P1-A gate blind spot | yes — 5 escape routes, before/after | yes — 2 in-room controls still PASS, WALL-NEW still fires |
 | P1-A secondary (blank verdict) | yes — observed `FAIL (1 issue(s): )` | n/a |
 | P1-B selection broken | yes — treatment/control console capture | yes — control selects successfully |
-| P1-C-1 interact leak | yes (detector v3) | yes — unbound key reads false in both states |
+| P1-C-1 interact leak | yes (detector v3); **closure re-verified at `61d4206`** | yes — unbound key reads false in both states, bound key fires editor-closed |
 | P1-C-2 `setLocked` door | yes — post-fix harness re-run | yes |
-| O-1 `stand()` escape | yes (harness v3, after two invalid versions) | yes — editor-open-not-seated reads 0, editor state read from HUD text not presence |
+| O-1 `stand()` escape | yes (harness v3, after two invalid versions); **closure re-verified at `61d4206`** | yes — editor-open-not-seated reads 0, editor state read from HUD text not presence, plus a hand-back control (§2.1 phase 4) |
 | O-2 micro-scale | yes — exit 0 at two scales, exit 1 at scale 40 | yes |
 | O-3 save scope | code-pinned, not runnable today (one entity exists) | n/a |
 | O-4 orphan validation | yes — malformed doc, gate output captured | n/a |
@@ -343,7 +426,9 @@ Nothing above is asserted without a reproduction. Explicitly:
 Verification of the fixes themselves: `npm run verify` exit 0 — gate PASS with
 `Containment: 1 editable(s) tested against room envelope [room.monitor.main]`, typecheck
 clean, and 129 assertions across six suites (height_fog 47, render_prefs 19,
-quality_live 9, RoomState 25, placement_audit 21, editor_pick 8), 0 failed.
+quality_live 9, RoomState 25, placement_audit 21, editor_pick 8), 0 failed. After
+`61d4206` the same command is exit 0 with 147 assertions across seven suites (the six
+above plus input_owner 18).
 
 ---
 
