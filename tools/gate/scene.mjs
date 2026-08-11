@@ -73,7 +73,12 @@ export function buildHeadlessScene() {
 
   // Apply overrides using the same path-resolved approach so the gate sees
   // the same overrides as the browser runtime.
-  const overridesPath = new URL('../../overrides.json', import.meta.url);
+  // OVERRIDES_PATH env var lets the vite middleware point the gate at a
+  // candidate (temp) file for transactional saves; when unset the default
+  // path (overrides.json at repo root) is used so `npm run gate` is unchanged.
+  const overridesPath = process.env.OVERRIDES_PATH
+    ? process.env.OVERRIDES_PATH
+    : new URL('../../overrides.json', import.meta.url).pathname;
   const overridesDoc = JSON.parse(readFileSync(overridesPath, 'utf8'));
   const overrides = applyOverrides(overridesDoc);
 

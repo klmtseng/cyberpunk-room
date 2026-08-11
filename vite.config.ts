@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
-import { writeFileSync, existsSync, unlinkSync, readFileSync, readdirSync } from 'fs';
+import { writeFileSync, existsSync, unlinkSync, readFileSync, readdirSync, renameSync } from 'fs';
 import { execFile, spawnSync } from 'child_process';
 import { homedir } from 'os';
 import { Readable } from 'stream';
@@ -276,13 +276,64 @@ function beacon(): Plugin {
       });
 
       // DEV-only editor save endpoint: receives overrides JSON from the
-      // Blender-style editor, writes it to overrides.json, then runs the
-      // gate and returns the verdict so the HUD can show PASS/FAIL in-browser.
+      // Blender-style editor, runs the gate against a candidate file, and
+      // atomically replaces overrides.json only on PASS.  A FAIL leaves the
+      // existing overrides.json byte-for-byte unchanged.
+      //
+      // Security hardening (host:true means the dev server is LAN-visible):
+      //   - Only loopback origins accepted (127.0.0.1 / ::1 / localhost).
+      //     Set EDITOR_ALLOW_REMOTE=1 to disable this check.
+      //   - Content-Type must be application/json.
+      //   - Body capped at 256 KB; excess bytes abort with 413.
+      //   - Write path is hard-coded; no request input can affect it.
       server.middlewares.use('/__editor/save', (req, res) => {
         if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+
+        // ── Loopback guard ──────────────────────────────────────────────────
+        if (!process.env.EDITOR_ALLOW_REMOTE) {
+          const addr = req.socket.remoteAddress ?? '';
+          const isLoopback = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+            || addr.toLowerCase() === 'localhost';
+          // Also check Origin header when present (preflight / explicit fetch)
+          const origin = req.headers['origin'] ?? '';
+          const originOk = !origin || /^https?:\/\/(127\.0\.0\.1|::1|localhost)(:\d+)?$/.test(origin);
+          if (!isLoopback || !originOk) {
+            res.statusCode = 403;
+            res.end(JSON.stringify({ ok: false, gateExit: -1, gateVerdict: 'forbidden: non-loopback origin' }));
+            return;
+          }
+        }
+
+        // ── Content-Type guard ──────────────────────────────────────────────
+        const ct = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+        if (ct !== 'application/json') {
+          res.statusCode = 415;
+          res.end(JSON.stringify({ ok: false, gateExit: -1, gateVerdict: 'Content-Type must be application/json' }));
+          return;
+        }
+
+        // ── Body size limit: 256 KB ─────────────────────────────────────────
+        const MAX_BODY = 256 * 1024;
+        let bodyBytes = 0;
         let body = '';
-        req.on('data', (c: string) => { body += c; });
+        let aborted = false;
+
+        req.on('data', (chunk: Buffer | string) => {
+          if (aborted) return;
+          bodyBytes += Buffer.byteLength(chunk);
+          if (bodyBytes > MAX_BODY) {
+            aborted = true;
+            res.statusCode = 413;
+            res.end(JSON.stringify({ ok: false, gateExit: -1, gateVerdict: 'request body exceeds 256 KB limit' }));
+            req.destroy();
+            return;
+          }
+          body += chunk;
+        });
+
         req.on('end', () => {
+          if (aborted) return;
+
           // Validate body shape before touching the filesystem
           let doc: { version: number; overrides: Record<string, unknown> };
           try {
@@ -298,18 +349,48 @@ function beacon(): Plugin {
             return;
           }
 
-          // Write overrides.json (indented for readable diffs)
+          // ── Transactional write ─────────────────────────────────────────
+          // 1. Write candidate to a temp file (pid-suffixed to avoid collisions)
+          // 2. Run gate against the candidate
+          // 3. On PASS: atomically rename candidate → overrides.json
+          // 4. On FAIL or error: delete candidate, leave overrides.json untouched
           const overridesPath = resolve(process.cwd(), 'overrides.json');
-          writeFileSync(overridesPath, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+          const candidatePath = resolve(process.cwd(), `.overrides.candidate.${process.pid}`);
+          const candidateContent = JSON.stringify(doc, null, 2) + '\n';
 
-          // Run gate synchronously; spawnSync won't throw on non-zero exit
-          const gate = spawnSync('npm', ['run', 'gate'], { encoding: 'utf8', cwd: process.cwd() });
-          const gateExit = gate.status ?? -1;
-          const allOutput = (gate.stdout ?? '') + (gate.stderr ?? '');
-          // Find the specific GATE verdict line (starts with "GATE check_wall_clip:")
-          const lines = allOutput.split('\n').map((l: string) => l.trim()).filter(Boolean);
-          const verdictLine = lines.find((l: string) => l.startsWith('GATE check_wall_clip:'));
-          const gateVerdict = verdictLine ?? lines[lines.length - 1] ?? '(no output)';
+          let gateExit = -1;
+          let gateVerdict = '(no output)';
+
+          try {
+            writeFileSync(candidatePath, candidateContent, 'utf8');
+
+            // Run gate synchronously against the candidate file.
+            // spawnSync will not throw on non-zero exit — non-zero is a normal
+            // FAIL signal, not an exception.
+            const gate = spawnSync('npm', ['run', 'gate'], {
+              encoding: 'utf8',
+              cwd: process.cwd(),
+              env: { ...process.env, OVERRIDES_PATH: candidatePath },
+            });
+            gateExit = gate.status ?? -1;
+            const allOutput = (gate.stdout ?? '') + (gate.stderr ?? '');
+            const lines = allOutput.split('\n').map((l: string) => l.trim()).filter(Boolean);
+            const verdictLine = lines.find((l: string) => l.startsWith('GATE check_wall_clip:'));
+            gateVerdict = verdictLine ?? lines[lines.length - 1] ?? '(no output)';
+
+            if (gateExit === 0) {
+              // Atomic replace: same-directory rename is atomic on POSIX
+              renameSync(candidatePath, overridesPath);
+            } else {
+              // Gate failed — discard candidate, leave overrides.json untouched
+              unlinkSync(candidatePath);
+            }
+          } catch (err) {
+            // Any unexpected error: clean up candidate, do NOT touch overrides.json
+            try { if (existsSync(candidatePath)) unlinkSync(candidatePath); } catch { /* best-effort */ }
+            gateVerdict = String(err).slice(0, 200);
+            gateExit = -1;
+          }
 
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: gateExit === 0, gateExit, gateVerdict }));
