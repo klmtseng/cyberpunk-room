@@ -10,6 +10,7 @@ import { buildCity } from './world/city';
 import { buildRain } from './world/weather';
 import { FPControls } from './player/fp-controls';
 import { InteractSystem } from './player/interact';
+import { createInputOwner } from './player/input_owner';
 import { TouchControls } from './player/touch-controls';
 import { BookReader } from './player/bookreader';
 import { FloorPlan } from './player/plan_view';
@@ -138,10 +139,11 @@ async function boot() {
     }
   });
   canvas.addEventListener('click', () => {
-    // Another subsystem may own input (the DEV editor sets controls.enabled=false
-    // while it is open). This handler's entire job is to engage player input, so
-    // bail out wholesale rather than guarding each branch — that also covers the
-    // touch path, which fakes lock via setLocked() instead of requestLock().
+    // Another subsystem may own input (e.g. the DEV editor while it is open).
+    // inputOwner tracks the current holder; controls.enabled is the downstream
+    // flag that reflects it. This handler's entire job is to engage player input,
+    // so bail out wholesale rather than guarding each branch — that also covers
+    // the touch path, which fakes lock via setLocked() instead of requestLock().
     if (!controls.enabled) return;
     if (IS_TOUCH) {
       // Touch path: no pointer-lock (doesn't exist). Fake the locked state
@@ -339,6 +341,11 @@ async function boot() {
   // ---------- interaction system ----------
   const interact = new InteractSystem(ctx.camera);
 
+  // ---------- 輸入所有權授權層 ----------
+  // 唯一的 controls.enabled / interact.enabled 寫入點。
+  // 所有子系統改為向 inputOwner 宣告意圖,不直接碰 controls.enabled。
+  const inputOwner = createInputOwner(controls, interact);
+
   // ---------- RoomState: serialisable source of truth for devices (M2) ----
   // E-press / terminal / URL-restore / future multiplayer all mutate through
   // this store; props only receive absolute apply() calls from it.
@@ -405,30 +412,26 @@ async function boot() {
     new THREE.Vector3(-4.6, 0, 4.75), 2.15, (f) => ambience.blip(f));
   ctx.scene.add(arcade.group);
   arcade.onClose = () => {
-    controls.enabled = true;
+    inputOwner.release('arcade');
     controls.clearKeys();
-    interact.enabled = true;
     interact.flash(t('flash.arcade.leave'));
   };
   interact.add(arcade.screen, t('prompt.arcade.screen'), () => {
     if (mode !== 'play' || arcade.isActive) return;
-    controls.enabled = false;
-    interact.enabled = false;
+    inputOwner.acquire('arcade');
     arcade.start();
   }, 2.8);
   interact.add(arcade.shell, t('prompt.arcade.shell'), () => {
     if (mode !== 'play' || arcade.isActive) return;
-    controls.enabled = false;
-    interact.enabled = false;
+    inputOwner.acquire('arcade');
     arcade.start();
   }, 2.8);
 
   // hold-a-book reading mode (replaces the old in-OS library reader)
   const reader = new BookReader(ctx.camera, ctx.scene);
   reader.onClose = () => {
-    controls.enabled = true;
+    inputOwner.release('reader');
     controls.clearKeys();
-    interact.enabled = true;
   };
 
   // invisible proxies for furniture built inside room.ts
@@ -506,8 +509,11 @@ async function boot() {
   });
   const stand = () => {
     if (!seated || !savedPose) return;
+    // 只有在玩家確實持有輸入時才能起立並取回輸入。
+    // 若此時編輯器(或其他子系統)正持有輸入,release 會被拒絕,
+    // 編輯器開著時按 WASD/S 無法強行將輸入交還給玩家(O-1 修復)。
+    if (inputOwner.currentOwner() !== 'player') return;
     seated = false;
-    controls.enabled = true;
     controls.clearKeys();
     ctx.camera.position.copy(savedPose.pos);
     controls.setOrientation(savedPose.yaw, savedPose.pitch);
@@ -517,8 +523,12 @@ async function boot() {
     cinemaSitGrace = 0;
     interact.flash(t('flash.stand'));
   };
+  // capture-phase listener:坐下時讓移動鍵觸發起立。
+  // 修復 O-1(b):只有在玩家持有輸入時才 stopPropagation + stand(),
+  // 這樣編輯器開著時這個 handler 完全不作用,不會把 S/E 等按鍵吃掉。
   window.addEventListener('keydown', (e) => {
-    if (seated && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'Space'].includes(e.code)) {
+    if (seated && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'Space'].includes(e.code)
+        && inputOwner.currentOwner() === 'player') {
       e.stopPropagation();
       stand();
     }
@@ -720,18 +730,16 @@ async function boot() {
     tweenFrom.pos.copy(ctx.camera.position);
     tweenFrom.yaw = controls.getYaw();
     tweenFrom.pitch = controls.getPitch();
-    controls.enabled = false;
+    inputOwner.acquire('os');
     controls.release();
-    interact.enabled = false;
     lockHint.classList.add('gone');
   };
   os.onExit = () => {
     mode = 'play';
     ctx.camera.position.copy(tweenFrom.pos);
     controls.setOrientation(tweenFrom.yaw, tweenFrom.pitch);
-    controls.enabled = true;
+    inputOwner.release('os');
     controls.clearKeys();
-    interact.enabled = true;
     lockHint.classList.remove('gone');
   };
 
@@ -819,7 +827,8 @@ async function boot() {
     // controls stay ENABLED so mouse-look works while seated; the update
     // loop locks position back to seatBase every frame so WASD/gravity
     // can't actually move the player.
-    controls.enabled = true;
+    // 玩家坐下時仍持有輸入(保留 mouse-look);明確宣告確保 applier 一致。
+    inputOwner.acquire('player');
     seatBase.set(0.4, 1.18, 2.0);
     ctx.camera.position.copy(seatBase);
     controls.setOrientation(Math.PI, -0.04);
@@ -873,9 +882,8 @@ async function boot() {
     tweenFrom.yaw = controls.getYaw();
     tweenFrom.pitch = controls.getPitch();
     mode = 'os';
-    controls.enabled = false;
+    inputOwner.acquire('os');
     controls.release();
-    interact.enabled = false;
     lockHint.classList.add('gone');
     os.enter();
     openFn();
@@ -887,8 +895,7 @@ async function boot() {
   for (const { mesh, book } of room.titledBooks) {
     interact.add(mesh, `${t('prompt.book.prefix')}${book.title}${t('prompt.book.suffix')}`, () => {
       if (mode !== 'play' || reader.isOpen) return;
-      controls.enabled = false;
-      interact.enabled = false;
+      inputOwner.acquire('reader');
       void reader.open(book);
     }, 2.4);
   }
@@ -1351,20 +1358,25 @@ async function boot() {
     // Mount the Blender-style modal editor (DEV only)
     import('./editor/editor').then(({ mountEditor }) => {
       // T2: input adapter — editor takes exclusive ownership while open.
-      // controls.enabled is the single source of truth for input ownership:
-      // the canvas click handler and FpControls.requestLock() both check it.
+      // inputOwner is the single source of truth for input ownership:
+      // the canvas click handler and FpControls.requestLock() both check
+      // controls.enabled which is kept in sync by inputOwner._apply().
       // A separate capturing click listener cannot work here — the canvas is the
       // event target, so at-target listeners fire in registration order and the
       // existing handler is registered first, before this module is imported.
-      let _prevEnabled = true;
+      //
+      // C-1 修復:acquire 現在同時設定 controls.enabled 與 interact.enabled
+      // (透過 inputOwner),而不是只設 controls.enabled。
+      // O-1 修復:不再用 _prevEnabled 快照——所有權用 owner 身分表達;
+      // stand() 在 editor 持有中時呼叫 release('player') 會被拒絕,
+      // 無法把輸入從編輯器手上搶走。
       const editorInputAdapter = {
         acquire() {
-          _prevEnabled = controls.enabled;
-          controls.enabled = false;
+          inputOwner.acquire('editor');
           if (document.pointerLockElement) document.exitPointerLock();
         },
         release() {
-          controls.enabled = _prevEnabled;
+          inputOwner.release('editor');
         },
       };
       mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer, editorInputAdapter);

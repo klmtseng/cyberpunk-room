@@ -9,9 +9,10 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "test": "for f in src/world/height_fog.test.ts src/engine/render_prefs.test.ts src/engine/quality_live.test.ts src/state/room_state.test.ts; do node --experimental-strip-types \"$f\" || exit 1; done && npm run test:placement && npm run test:pick",
+    "test": "for f in src/world/height_fog.test.ts src/engine/render_prefs.test.ts src/engine/quality_live.test.ts src/state/room_state.test.ts; do node --experimental-strip-types \"$f\" || exit 1; done && npm run test:placement && npm run test:pick && npm run test:input-owner",
     "test:placement": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs tools/gate/placement_audit.test.ts",
     "test:pick": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs tools/gate/editor_pick.test.ts",
+    "test:input-owner": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs tools/gate/input_owner.test.ts",
     "gate": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/check_wall_clip.mjs",
     "gate:baseline": "node --experimental-strip-types --loader ./tools/gate/ts-loader.mjs --import ./tools/gate/headless-globals.mjs ./tools/gate/regen_baseline.mjs",
     "verify": "npm run gate && npm run typecheck && npm test"
