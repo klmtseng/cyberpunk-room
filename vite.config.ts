@@ -350,10 +350,19 @@ function beacon(): Plugin {
           }
 
           // ── Transactional write ─────────────────────────────────────────
-          // 1. Write candidate to a temp file (pid-suffixed to avoid collisions)
+          // 1. Write candidate to a temp file
           // 2. Run gate against the candidate
           // 3. On PASS: atomically rename candidate → overrides.json
           // 4. On FAIL or error: delete candidate, leave overrides.json untouched
+          //
+          // What actually makes concurrent saves safe is that steps 1-4 contain
+          // no `await`: spawnSync blocks Node's single thread, so a second
+          // request cannot interleave with a first one that is mid-transaction.
+          // The pid suffix does NOT provide that — within one dev server every
+          // request shares a pid, so it would be the same filename either way.
+          // It separates *different* dev servers, which is a real but much
+          // weaker property: two servers on the same working tree still race on
+          // the final rename (last writer wins, no lost-update detection).
           const overridesPath = resolve(process.cwd(), 'overrides.json');
           const candidatePath = resolve(process.cwd(), `.overrides.candidate.${process.pid}`);
           const candidateContent = JSON.stringify(doc, null, 2) + '\n';

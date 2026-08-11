@@ -60,6 +60,40 @@ function vec3Near(a: [number, number, number], b: [number, number, number]): boo
 
 // ── Main mount function ───────────────────────────────────────────────────────
 
+/**
+ * Meshes a click is allowed to pick, in the flat form `intersectObjects(list,
+ * false)` wants.
+ *
+ * The visibility filter is load-bearing, not tidiness. `Object3D.traverse`
+ * descends into hidden subtrees, and a NON-recursive `intersectObjects` never
+ * looks at ancestors — so a mesh whose parent is `visible = false` lands in the
+ * list and can win the raycast while being invisible on screen. That is exactly
+ * what happened here: BookReader parks a hidden Group on the camera
+ * (`player/bookreader.ts:60-61`) holding five visible page/cover meshes half a
+ * metre in front of the lens. Every editor click hit a book page nobody could
+ * see and reported "not editable"; real mouse selection had never worked, and
+ * the existing tests all went through the `__editorSelectById` hook, which
+ * bypasses the raycast entirely.
+ *
+ * Exported so it can be tested headlessly without a DOM.
+ */
+export function collectSelectableMeshes(
+  scene: THREE.Object3D,
+  gizmoRoot: THREE.Object3D,
+): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  scene.traverse((o) => {
+    if (o === gizmoRoot) return;
+    if (gizmoRoot.getObjectById(o.id)) return;
+    if (!(o as THREE.Mesh).isMesh) return;
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+      if (!p.visible) return;
+    }
+    out.push(o);
+  });
+  return out;
+}
+
 export interface EditorInputAdapter {
   /** Take exclusive input ownership: disable player controls, exit pointer lock. */
   acquire(): void;
@@ -99,6 +133,7 @@ export function mountEditor(
 
   // ── Raycast selection ───────────────────────────────────────────────────────
   const raycaster = new THREE.Raycaster();
+
   let selectedRoot: THREE.Object3D | null = null;
   let savedMessage = '';
 
@@ -124,14 +159,8 @@ export function mountEditor(
     );
     raycaster.setFromCamera(ndc, camera);
 
-    // Intersect all visible objects in scene (recursive)
     const gizmoRoot = tc.getHelper();
-    const candidates: THREE.Object3D[] = [];
-    scene.traverse((o) => {
-      if (o === gizmoRoot) return;
-      if (gizmoRoot.getObjectById(o.id)) return;
-      if ((o as THREE.Mesh).isMesh) candidates.push(o);
-    });
+    const candidates = collectSelectableMeshes(scene, gizmoRoot);
 
     const hits = raycaster.intersectObjects(candidates, false);
     if (hits.length > 0) {

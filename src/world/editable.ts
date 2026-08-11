@@ -164,7 +164,14 @@ function assertVec3(val: unknown, label: string): [number, number, number] {
  * Two-phase execution:
  *   Phase 1 (validation): iterate the full document without touching the scene.
  *   Phase 2 (apply):      only runs if phase 1 passes entirely.
- *   If phase 1 throws, the scene is guaranteed to be unchanged.
+ *
+ * Scope of the atomicity guarantee, stated precisely because the earlier wording
+ * ("the scene is guaranteed to be unchanged") claimed more than the code does:
+ * a phase-1 rejection leaves the scene untouched, which is the case this design
+ * exists for — one bad entry cannot half-apply a document. Phase 2 has no
+ * rollback. It only performs copy/set on already-validated finite numbers, so
+ * there is no known way for it to throw partway; but if it ever did, entries
+ * applied before the throw would stay applied.
  */
 export function applyOverrides(data: unknown): { applied: string[]; orphaned: string[] } {
   const doc = data as OverridesDoc;

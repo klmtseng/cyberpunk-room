@@ -46,6 +46,24 @@ export const WALL_SLABS: THREE.Box3[] = [
   ),
 ];
 
+// The outer skin of the room: the interior plus the wall slabs themselves, and
+// the floor-to-ceiling span. Anything an editor-movable entity does INSIDE this
+// box is somebody else's check (wall census, below-floor, overlap); anything
+// that leaves it is out of the building.
+//
+// Why this exists: the wall census only fires on meshes that *intersect* a wall
+// slab, and the below-floor check only fires between -0.03 and -3. Both are
+// scope conditions that were correct for authored geometry, which never moves.
+// Once an editor can write arbitrary transforms, they leave a hole the size of
+// the rest of the universe — a prop pushed clean through a wall, dropped 50
+// units down, or parked 20 units behind the room touches no slab and is below
+// the floor check's lower bound, so every check declines jurisdiction and the
+// gate reports ALL CLEAR. Reproduced at 6 positions before this was added.
+export const ROOM_ENVELOPE = new THREE.Box3(
+  new THREE.Vector3(-HALF_W - WALL_T, -0.05, -HALF_D - WALL_T),
+  new THREE.Vector3( HALF_W + WALL_T, ROOM_BOUNDS.h,  HALF_D + WALL_T),
+);
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type IssueKind =
@@ -53,7 +71,8 @@ export type IssueKind =
   | 'BELOW-FLOOR'
   | 'OVERLAP'
   | 'WALL-NEW'      // intersects a wall slab but has no baseline entry
-  | 'WALL-DEEPER';  // has a baseline entry, but penetrates deeper than recorded
+  | 'WALL-DEEPER'   // has a baseline entry, but penetrates deeper than recorded
+  | 'OUT-OF-ROOM';  // an editor-movable entity left the room envelope entirely
 
 export interface AuditIssue {
   kind: IssueKind;
@@ -112,6 +131,12 @@ export interface AuditResult {
   baselineSize: number;
   /** Number of exact-match whitelist entries. */
   whitelistSize: number;
+  /**
+   * Editor ids whose subtree was found in the scene and tested against
+   * ROOM_ENVELOPE. Printed so an empty set (= containment check silently
+   * covering nothing) is visible rather than looking like a clean pass.
+   */
+  editablesChecked: string[];
   /** Baseline entries that matched nothing this run (scene shrank / drifted). */
   baselineUnused: string[];
   /** The census actually computed — used by the baseline regeneration tool. */
@@ -191,6 +216,18 @@ export function runPlacementAudit(
   const meshes: Array<{ m: THREE.Mesh; box: THREE.Box3; vol: number }> = [];
   let meshesSeen = 0;
 
+  // Editable subtrees, accumulated as a union AABB per editor id. Read from
+  // userData.editorId (set by registerEditable) rather than importing the
+  // registry, so this module stays pure THREE math with no world/ dependency.
+  const editableBoxes = new Map<string, THREE.Box3>();
+  const ownerEditableId = (o: THREE.Object3D): string | null => {
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+      const id = p.userData?.editorId;
+      if (typeof id === 'string') return id;
+    }
+    return null;
+  };
+
   for (const r of roots) r.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -219,6 +256,13 @@ export function runPlacementAudit(
     const s = new THREE.Vector3();
     box.getSize(s);
     meshes.push({ m: mesh, box, vol: s.x * s.y * s.z });
+
+    const owner = ownerEditableId(mesh);
+    if (owner) {
+      const acc = editableBoxes.get(owner);
+      if (acc) acc.union(box);
+      else editableBoxes.set(owner, box.clone());
+    }
   });
 
   // ── Wall census: every wall-touching mesh is accounted for ────────────────
@@ -303,6 +347,29 @@ export function runPlacementAudit(
     }
   }
 
+  // ── OUT-OF-ROOM check (editor-movable entities only) ─────────────────────
+  // Scoped to registered editables on purpose: authored geometry legitimately
+  // lives outside the room (skyline, exterior signage), and this check must not
+  // become a whitelist-farming exercise over static props that cannot move.
+  // The subject is exactly the set of things a save can relocate.
+  for (const [id, box] of editableBoxes) {
+    if (ROOM_ENVELOPE.containsBox(box)) continue;
+    const over = (lo: number, hi: number, elo: number, ehi: number) =>
+      Math.max(elo - lo, hi - ehi);
+    const parts: string[] = [];
+    const ex = over(box.min.x, box.max.x, ROOM_ENVELOPE.min.x, ROOM_ENVELOPE.max.x);
+    const ey = over(box.min.y, box.max.y, ROOM_ENVELOPE.min.y, ROOM_ENVELOPE.max.y);
+    const ez = over(box.min.z, box.max.z, ROOM_ENVELOPE.min.z, ROOM_ENVELOPE.max.z);
+    if (ex > 0) parts.push(`x by ${ex.toFixed(3)}`);
+    if (ey > 0) parts.push(`y by ${ey.toFixed(3)}`);
+    if (ez > 0) parts.push(`z by ${ez.toFixed(3)}`);
+    issues.push({
+      kind: 'OUT-OF-ROOM',
+      name: id,
+      detail: `outside room envelope: ${parts.join(', ')}`,
+    });
+  }
+
   // ── OVERLAP check ────────────────────────────────────────────────────────
   const big = meshes.filter((x) => x.vol > 0.02 && x.m.name && !WHITELIST.has(x.m.name));
   for (let i = 0; i < big.length; i++) {
@@ -332,6 +399,7 @@ export function runPlacementAudit(
     baselineMatched,
     baselineSize: baseline.length,
     whitelistSize: WHITELIST.size,
+    editablesChecked: [...editableBoxes.keys()].sort(),
     baselineUnused,
     census,
   };
@@ -373,6 +441,10 @@ export function formatAuditReport(result: AuditResult): string {
   lines.push(
     `Rules: baseline entries=${result.baselineSize} · whitelist entries=${result.whitelistSize} · ` +
     `depth tolerance=${DEPTH_TOLERANCE}`,
+  );
+  lines.push(
+    `Containment: ${result.editablesChecked.length} editable(s) tested against room envelope` +
+    (result.editablesChecked.length ? ` [${result.editablesChecked.join(', ')}]` : ' — NONE FOUND'),
   );
   lines.push(
     `Non-geometric: ${invisibleSkipped.length} invisible (still censused), ` +

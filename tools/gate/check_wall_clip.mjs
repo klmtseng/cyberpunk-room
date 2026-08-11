@@ -131,12 +131,16 @@ if (totalFails === 0) {
   );
   process.exit(0);
 } else {
+  // Derive the per-kind breakdown from the issues themselves rather than a
+  // hand-maintained list of kinds. The previous hand-written version silently
+  // omitted any kind added later: OUT-OF-ROOM's first run printed
+  // "FAIL (1 issue(s): )" — the right exit code with a blank explanation.
   const parts = [];
-  if (wallNew)                    parts.push(`${wallNew} WALL-NEW`);
-  if (wallDeeper)                 parts.push(`${wallDeeper} WALL-DEEPER`);
-  if (inWall)                     parts.push(`${inWall} IN-WALL`);
-  if (floorIssues)                parts.push(`${floorIssues} BELOW-FLOOR`);
-  if (overlaps)                   parts.push(`${overlaps} OVERLAP`);
+  const byKind = new Map();
+  for (const i of result.issues) byKind.set(i.kind, (byKind.get(i.kind) ?? 0) + 1);
+  for (const [kind, n] of [...byKind].sort((a, b) => a[0].localeCompare(b[0]))) {
+    parts.push(`${n} ${kind}`);
+  }
   if (staleBaseline)              parts.push(`${staleBaseline} BASELINE-UNUSED`);
   if (untestable)                 parts.push(`${untestable} UNTESTABLE`);
   if (orphanedOverrides.length)   parts.push(`${orphanedOverrides.length} ORPHAN-OVERRIDE`);

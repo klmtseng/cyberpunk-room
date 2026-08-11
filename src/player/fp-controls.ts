@@ -90,6 +90,11 @@ export class FPControls {
    *  no pointer-lock (touch, XR). Movement code reads `this.locked` to gate
    *  WASD; we want the same gate for joystick. */
   setLocked(on: boolean): void {
+    // Second door onto the same state as requestLock(): touch and XR engage
+    // movement through here instead. Guarding only requestLock() would leave
+    // this path able to hand input back while another subsystem owns it.
+    // Releasing is always allowed — only *taking* the lock is refused.
+    if (on && !this.enabled) return;
     if (this.locked === on) return;
     this.locked = on;
     this.listeners.forEach((f) => f());
