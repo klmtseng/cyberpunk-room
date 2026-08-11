@@ -37,7 +37,7 @@ builder never put up for audit but which shares the "audited" halo.
 | T5 | CI runs `npm run verify` | **FAIL — has never run once** |
 | H8 | The gate catches bad placements written by the editor | **FAILED before `773407e`; now partially true — one blind spot remains open** |
 | H9 | Clicking a prop in the editor selects it | **FAILED before `773407e`; now true** |
-| H10 | Saving preserves other entities' edits | **Latent FAIL — cannot bite today, blocks expansion** |
+| H10 | Saving preserves other entities' edits | **Latent FAIL as audited — closed at `8f932ae` (§4 O-3); the on-disk merge always worked, what was dropped was unsaved in-session edits of unselected entities** |
 
 ---
 
@@ -354,6 +354,36 @@ Ctrl+S, and A's move is silently dropped while the screen still shows it moved.
 (`src/world/room.ts:678`) — but it becomes a live data-loss defect on the first day a
 second entity is registered, which is exactly the deferred expansion.
 
+**Closed at `8f932ae`** (2026-08-12). The merge computation moved out of the editor
+closure into a pure function, `computeOverrides()` in `src/editor/override_merge.ts:54`,
+which walks `listEditableIds()` instead of the selection and writes every entity whose
+live transform differs from its authored default. Per-entity semantics are unchanged:
+six-decimal rounding, field-level diffing against authored, and deletion of entries that
+match authored. Orphan ids in the file are preserved because only registry ids are
+walked (`src/editor/override_merge.ts:61`). One behaviour deliberately changed: an id
+whose authored transform cannot be looked up is now skipped with a console warning
+rather than aborting the whole save, so one bad entity can no longer block saving every
+other one — except for the *selected* entity, which still aborts
+(`src/editor/editor.ts:346`), because that is the one the user is looking at.
+
+`tools/gate/override_merge.test.ts` adds 16 assertions over six scenarios, including a
+negative control (an all-unchanged input returns a record equal to `existing`).
+
+**Honest limit on that test suite.** The tests do not reproduce the original bug. The
+old code path lived inside the editor closure and was not unit-testable — that is why it
+was extracted — and the scenario needs two registered editables, while the scene has
+one. What the fix does is remove selection from the save computation as an *input*, so
+the defect class is structurally impossible rather than tested against; the tests verify
+that the per-entity semantics survived the move. A true end-to-end reproduction still
+requires a second editable, and is not claimed here.
+
+Integration was checked at the level available: `npm run verify` exit 0 with 163
+assertions across eight suites, and the T2 browser harness (§2.1) re-run unchanged after
+this commit — `LEAK_STILL_PRESENT=false`, `O1_ESCAPE_STILL_PRESENT=false`,
+`INPUT_RETURNED_AFTER_EDITOR=true`, `errors=[]`. A live `Ctrl+S` was deliberately **not**
+run, because it rewrites `overrides.json`, which this audit is not permitted to modify;
+so the save round-trip itself is unverified at runtime for this commit.
+
 ### O-4 · Orphaned override entries skip content validation (severity low)
 
 `src/world/editable.ts:203` pushes an unknown id to `orphaned` and `continue`s **before**
@@ -417,7 +447,7 @@ Nothing above is asserted without a reproduction. Explicitly:
 | P1-C-2 `setLocked` door | yes — post-fix harness re-run | yes |
 | O-1 `stand()` escape | yes (harness v3, after two invalid versions); **closure re-verified at `61d4206`** | yes — editor-open-not-seated reads 0, editor state read from HUD text not presence, plus a hand-back control (§2.1 phase 4) |
 | O-2 micro-scale | yes — exit 0 at two scales, exit 1 at scale 40 | yes |
-| O-3 save scope | code-pinned, not runnable today (one entity exists) | n/a |
+| O-3 save scope | code-pinned, not runnable today (one entity exists); fix at `8f932ae` covered by unit tests only, **the original defect was never reproduced** | yes — an all-unchanged input returns `existing` unchanged |
 | O-4 orphan validation | yes — malformed doc, gate output captured | n/a |
 | O-5 baseline keys | attempted; reviewer's prediction **did not** reproduce | yes |
 | T4 transaction | yes | yes — both FAIL and PASS observed |
