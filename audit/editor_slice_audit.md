@@ -14,8 +14,15 @@ repaired, and what is still broken on purpose.
 **Status at `61d4206`:** T2's three escapes are now all closed and re-verified against
 detectors that pass in both directions (§2.1). The claim as originally worded is still
 recorded as FAIL, because it was false when made — the repair is a later event, not a
-retroactive correction of the verdict. **T5 remains FAIL** and cannot be fixed without
-an outward-facing action.
+retroactive correction of the verdict.
+
+**Status at `f73406c`:** T5's underlying condition is now satisfied — CI ran
+`npm run verify` and it passed (§5b). **This does not turn the audit into a clean pass.**
+Both T2 and T5 were false when claimed and their verdicts stand. Of the remaining five,
+C1 passes only as a **tautology** with little evidential value, and T3 holds **only under
+the narrowed wording** adopted after the audit — the original wording overclaimed. So the
+honest one-line summary remains: two claims failed and were later repaired, one is
+vacuous, one was rewritten to fit the evidence, and three hold as stated.
 
 ---
 
@@ -34,7 +41,7 @@ builder never put up for audit but which shares the "audited" halo.
 | T2 | The editor owns input exclusively while open | **FAIL as audited — three independent escapes reproduced. Two were fixed in `773407e`; the third (O-1) needed the ownership refactor and was closed in `61d4206`. All three re-verified closed on 2026-08-12 (§2.1). The verdict stays FAIL: the claim was false when made.** |
 | T3 | Override validation is two-phase and never half-applies | **PASS as now worded; the earlier wording overclaimed** |
 | T4 | Save is transactional (gate FAIL ⇒ file unchanged); read failure aborts | **PASS (control pair run)** |
-| T5 | CI runs `npm run verify` | **FAIL — has never run once** |
+| T5 | CI runs `npm run verify` | **FAIL as audited — had never run once. Made true later at `f73406c`: CI run 31568529846 succeeded and did execute the command (§5b). The verdict stays FAIL because the claim was false when made.** |
 | H8 | The gate catches bad placements written by the editor | **FAILED before `773407e`; now partially true — one blind spot remains open** |
 | H9 | Clicking a prop in the editor selects it | **FAILED before `773407e`; now true** |
 | H10 | Saving preserves other entities' edits | **Latent FAIL as audited — closed at `8f932ae` (§4 O-3); the on-disk merge always worked, what was dropped was unsaved in-session edits of unselected entities** |
@@ -414,7 +421,9 @@ any other.
 
 ---
 
-## 5. T5 — the CI claim is withdrawn
+## 5. T5 — the CI claim, withdrawn at audit time and later made true
+
+### 5a. As audited (`773407e`) — withdrawn
 
 `npm run verify` is claimed to run in CI. Checked, in this order:
 
@@ -431,6 +440,52 @@ strength of a green local test run while CI was red from the first push.
 This is left as a withdrawn claim rather than fixed, because making it true requires
 `git push` — an outward-facing action that needs its own `pre_public_gate.sh` run and a
 fresh instruction. It is not part of "run the audit".
+
+### 5b. Made true at `f73406c` (2026-08-12) — now PASS
+
+The push happened later, as a separately authorised step. **The timeline matters and is
+not being flattened:** at audit time, and at every commit up to and including `6397a26`,
+this claim was false — the workflow had zero runs. It became true only when a run
+actually executed and succeeded.
+
+Run: <https://github.com/klmtseng/cyberpunk-room/actions/runs/31568529846>
+`conclusion: success`, `event: push`, `headSha: f73406cbcfe934658e4f5dd5c3a4955f8311f756`
+— matching the pushed commit. Job `verify`, 17s. **This was the workflow's first
+execution in the repository's history.**
+
+Verified from the run log rather than from the job's name, because a job called "verify"
+passing is not evidence that `npm run verify` ran. The step `Run npm run verify` expanded
+to `npm run gate && npm run typecheck && npm test` and produced:
+
+```
+GATE check_wall_clip: PASS (607 meshes checked, 75 wall-touching,
+  75 matched to 75 baseline + 5 whitelist entries, 0 issues)
+Containment: 1 editable(s) tested against room envelope [room.monitor.main]
+height_fog 47 · render_prefs 19 · quality_live 9 · RoomState 25
+placement_audit 21 · editor_pick 8 · input_owner 18 · override_merge 16
+   → 163 assertions, 0 failed
+```
+
+Vercel deployment status was explicitly **not** accepted as evidence for this claim; only
+the CI job running that command counts.
+
+Two notes recorded rather than silently absorbed:
+
+- Getting here required rewriting two unpushed commits (`c3b3f65`, `6397a26`) whose
+  author email was a real address rather than the repository's noreply identity — a
+  defect introduced by the operator during this audit, caught by `pre_public_gate.sh`
+  G1/G4, and repaired only under explicit authorisation. Trees, messages, names and
+  ordering were proven unchanged before pushing.
+- The push proceeded under a **one-time, narrow exemption** for `pre_public_gate.sh` G5,
+  which rejects `20399135+klmtseng@users.noreply.github.com` — GitHub's numeric noreply
+  form, present on two pre-existing remote commits and not introduced by this push. In
+  that script — which lives outside this repository, so the line references below are not
+  citations a reader of this repo can resolve — the G5 branch at line 242 compares
+  against one allowlist value while the G1 branch at line 138 compares against two, so
+  the address is simultaneously in the script's own allowlist variable and rejected by
+  G5. That script bug and the
+  deprecated `actions/*@v4` Node 20 annotation are both left as separate maintenance
+  work; neither is fixed here.
 
 ---
 
@@ -451,7 +506,7 @@ Nothing above is asserted without a reproduction. Explicitly:
 | O-4 orphan validation | yes — malformed doc, gate output captured | n/a |
 | O-5 baseline keys | attempted; reviewer's prediction **did not** reproduce | yes |
 | T4 transaction | yes | yes — both FAIL and PASS observed |
-| T5 CI | yes — four independent checks | n/a |
+| T5 CI | yes — four independent checks at audit time; closure verified from the run log of CI run 31568529846, not from the job name | yes — the log shows the command expanding and its output, so a passing job named "verify" alone was not accepted |
 
 Verification of the fixes themselves: `npm run verify` exit 0 — gate PASS with
 `Containment: 1 editable(s) tested against room envelope [room.monitor.main]`, typecheck
