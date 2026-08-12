@@ -24,6 +24,52 @@ the narrowed wording** adopted after the audit — the original wording overclai
 honest one-line summary remains: two claims failed and were later repaired, one is
 vacuous, one was rewritten to fit the evidence, and three hold as stated.
 
+**Status at `1836cfd` (2026-08-13):** a cold review opened after this audit closed found
+that the §2.1 repair handed input back to the wrong owner (H11). Closed at
+`1836cfd52456dba7b4dc514e90d9ea10cecc2c5f`; full timeline in §2.2. The verdicts above are
+unchanged — H11 is a later event, not a retroactive correction.
+
+---
+
+## 0. Milestone and stop rule
+
+**Milestone: Editor Vertical Slice v0.1 — Controlled-use Ready.**
+Closed 2026-08-13 at `1836cfd52456dba7b4dc514e90d9ea10cecc2c5f`. CI run
+[31622498663](https://github.com/klmtseng/cyberpunk-room/actions/runs/31622498663):
+`npm run verify` executed and passed, **194 assertions / 0 failed**, gate
+`check_wall_clip: PASS`. That 194/0 is the current baseline.
+
+"Controlled-use ready" is deliberately narrower than "done". It means: the editor can be
+used by someone who knows its limits, the save path will not corrupt `overrides.json`, and
+input ownership no longer strands the player. It does **not** mean the open findings below
+were resolved.
+
+**Carried as non-blocking backlog, not fixed:**
+
+| Item | Where | Why it does not block |
+|---|---|---|
+| O-2 shrink-to-invisible passes the gate | §4 | Requires deliberate misuse; gate still catches every out-of-room case |
+| O-4 orphaned override entries skip content validation | §4 | Orphans are preserved, not applied; reproduced and bounded |
+| O-5 baseline keys embed world coordinates | §4 | Reviewer's predicted failure did **not** reproduce |
+| Gizmo behaviour | — | Never live-verified at any point in this audit; treat as unverified |
+| Multi-entity live coverage | §7 | Only one editable (`room.monitor.main`) exists, so N-entity behaviour is untested by construction, not by omission |
+
+**Stop rule — when to reopen editor engineering.** This slice is closed. Reopen it only on
+one of these five signals, and not for polish, refactoring, or additional audit rounds:
+
+1. **Data corruption** — `overrides.json` is written in a state the gate would have rejected,
+   or a save loses an entity's committed edits.
+2. **Reload inconsistency** — what the editor shows after a save does not match what a fresh
+   page load builds from the same file.
+3. **Input soft-lock** — any sequence that leaves both `controls.enabled` and
+   `interact.enabled` false with no overlay on screen (the H11 failure mode, §2.2).
+4. **Gate/scene contradiction** — the gate reports PASS on a placement that is visibly wrong,
+   or FAIL on one that is visibly right.
+5. **A real content need that cannot be met** — an actual room-authoring task is blocked by a
+   missing editor capability.
+
+Absent one of those, further work here is not justified.
+
 ---
 
 ## 1. Claims under audit
@@ -38,7 +84,7 @@ builder never put up for audit but which shares the "audited" halo.
 | C1 | Semantic IDs do not depend on build order | **PASS — but tautological, and an adjacent order dependency is unguarded** |
 | C2 | Editor writes go through the same build path the gate uses | **PASS (verifiable, not tautological)** |
 | T1 | Registry lifecycle is the caller's job, and gate/runtime agree | **PASS** |
-| T2 | The editor owns input exclusively while open | **FAIL as audited — three independent escapes reproduced. Two were fixed in `773407e`; the third (O-1) needed the ownership refactor and was closed in `61d4206`. All three re-verified closed on 2026-08-12 (§2.1). The verdict stays FAIL: the claim was false when made.** |
+| T2 | The editor owns input exclusively while open | **FAIL as audited — three independent escapes reproduced. Two were fixed in `773407e`; the third (O-1) needed the ownership refactor and was closed in `61d4206`. All three re-verified closed on 2026-08-12 (§2.1). The verdict stays FAIL: the claim was false when made.** The `61d4206` repair was itself later found incomplete — it returned input to the wrong owner (H11); closed at `1836cfd`, see §2.2. |
 | T3 | Override validation is two-phase and never half-applies | **PASS as now worded; the earlier wording overclaimed** |
 | T4 | Save is transactional (gate FAIL ⇒ file unchanged); read failure aborts | **PASS (control pair run)** |
 | T5 | CI runs `npm run verify` | **FAIL as audited — had never run once. Made true later at `f73406c`: CI run 31568529846 succeeded and did execute the command (§5b). The verdict stays FAIL because the claim was false when made.** |
@@ -232,6 +278,130 @@ Machine layer re-run independently after the refactor: `npm run verify` exit 0; 
 + 5 whitelist entries, 0 issues)`; 147 assertions across height_fog 47 / render_prefs 19
 / quality_live 9 / RoomState 25 / placement_audit 21 / editor_pick 8 / input_owner 18,
 0 failed; the containment check still fires on `room.monitor.main`.
+
+**Limitation of this section, recorded after the fact.** Everything above was measured on
+one hand-back path: **`player → editor → player`**. That is the path the harness drove and
+the only one the 18 assertions covered. It does **not** generalise to "input is correctly
+returned to whatever owner held it". At `61d4206` the editor adapter called
+`release('editor')` and took the parameter's `to = 'player'` default, so *every* hand-back
+went to `player` regardless of who had been interrupted — a fact this section's evidence
+could not have detected, because `player` was the only prior owner it ever tested. See
+§2.2.
+
+---
+
+## 2.2 H11 — the `61d4206` repair returned input to the wrong owner (`1836cfd`, 2026-08-13)
+
+**Timeline note.** H11 was found by a **cold review opened after this audit had closed**,
+reading current code without the audit's claim list. It is recorded here as a later event.
+Nothing in §1–§2.1 is rewritten to pretend it was known earlier: the §2.1 evidence was
+correct for what it measured, and its blind spot is stated in that section rather than
+edited out of it.
+
+**The defect.** `61d4206` made `InputOwner` the single writer of `controls.enabled` /
+`interact.enabled`, but `release(from, to = 'player')` carried a default, and the editor
+adapter used it. So opening the editor on top of an already-open overlay and then closing
+the editor handed input to `player` — not back to the overlay that was interrupted. The
+player could then walk around underneath an overlay still on screen.
+
+**Reachability had to be established before this was worth fixing.** Three overlays could
+in principle precede the editor:
+
+| Prior owner | F2 reaches the editor while it is open? | Why |
+|---|---|---|
+| `os` | **yes** | its window keydown listener (`src/pc/os.ts:133`) is **bubble** phase and never calls `stopPropagation()`, so F2 still reaches the editor |
+| `arcade` | no | `src/world/arcade.ts:109` registers with `capture = true` and calls `stopPropagation()` at `src/world/arcade.ts:111` whenever `isActive`, so the editor's bubble-phase F2 listener never runs |
+| `reader` | no | same shape — `src/player/bookreader.ts:63` capture, `src/player/bookreader.ts:65` `stopPropagation()` whenever `isOpen` |
+
+So the only sequence a user can actually produce is the **OS-nested** one. `arcade` and
+`reader` are dead branches of the same policy — real code paths, unreachable input
+sequences. They are covered by focused tests below, and **not** claimed as live-verified.
+
+**Why the obvious fix is worse than the bug.** Simply recording the previous owner and
+restoring it turns a fail-open defect into a fail-closed one. If the OS is closed *while
+the editor is open* (Escape reaches CyberOS, which closes; the editor stays on), restoring
+`os` on editor-off hands input to an owner that has already left. That state has
+`controls.enabled === false` **and** `interact.enabled === false`, and `enterOS` is
+registered on the `interact` system — so the OS cannot be reopened to release the lock.
+Nothing on screen indicates why. Only a page reload recovers. A visible wrong state
+(walking under an overlay) is strictly preferable to an invisible dead one.
+
+**The fix.** The previous owner is recorded on acquire, and at hand-back the **composition
+layer** — `src/main.ts`, the only place that can see every overlay at once — samples
+liveness and decides:
+
+- `src/player/editor_handback.ts` (new) holds the policy as a pure function,
+  `resolveHandbackTarget(previousOwner, live)`: `player → player`; `os`/`arcade`/`reader`
+  → themselves if live, else `player`; `editor` → `player`. Being a free function rather
+  than a closure inside `main.ts`'s dynamic import is what makes all ten branches
+  unit-testable.
+- `src/main.ts:1401` samples `{os: os.isOpen, arcade: arcade.isActive, reader:
+  reader.isOpen}` and `src/main.ts:1406` calls `inputOwner.release('editor', target)`
+  — in the **same
+  synchronous block**, with no `await` between the sample and the release, so there is no
+  window in which an overlay can change state after being read.
+- `src/player/input_owner.ts` stays **overlay-blind**: it does not import, query, or know
+  about `os` / `arcade` / `reader`, and gained no stack, no pending-owner slot and no
+  overlay registry. It remains bookkeeping. The `to = 'player'` default was removed, so all
+  four release sites (`src/main.ts:417`, `src/main.ts:435`, `src/main.ts:743`, and the
+editor adapter at `src/main.ts:1406`) now name
+  their target explicitly. Note that under `--experimental-strip-types` a removed default
+  is not a compile error — it surfaces as a runtime `undefined` — which is why the removal
+  is paired with test 7 asserting `release.length === 2`.
+
+**Live verification** (`/tmp/v_handback_live.mjs`, Firefox, 2026-08-13). Two observables:
+`controls` = a canvas click reaching `requestPointerLock` (spied); `interact` = pressing E
+at the monitor reopening CyberOS. The second is also the soft-lock probe — under a stale
+`os` owner it is impossible by construction. Detector validation ran first, in both
+directions, and cross-checked a synthetic click against a real one with no overlay
+present (`det_closed_real=true`, `det_open_real=false`); the synthetic dispatch is used in
+the nested scenarios because the open `#cyberos` overlay intercepts real pointer events,
+and `src/main.ts:143` has no `isTrusted` guard, so the code path under test is identical.
+
+```
+DETECTORS_VALID=true
+S1  player -> editor -> player                          PASS  controls=true interact=true
+S2  os(open) -> editor -> editor off -> os -> Escape    PASS  after editor off controlsOn=false
+                                                              (input went to 'os', not 'player')
+                                                              after Escape controls=true interact=true
+S3  os(open) -> editor -> Escape closes os -> editor off PASS os.isOpen=false under [EDITOR ON];
+                                                              after editor off controls=true interact=true
+errors=[]
+```
+
+S2's `controlsOn=false` is the load-bearing reading: it is the one that would have been
+`true` under the old default, and it is what distinguishes "handed back to `os`" from
+"handed back to `player`". S3 is the soft-lock case, and it checks **both** flags, because
+a fix that recovered `controls` alone would still strand the player with no way to jack in.
+
+**`arcade` and `reader` are focused-test evidence only.** Their branches are exercised by
+`tools/gate/input_owner.test.ts` against `resolveHandbackTarget` directly — active and
+inactive for each. No live UI run is claimed for them, and none should be: the sequences
+are unreachable, so any live run asserting them would be asserting something a user cannot
+do.
+
+`tools/gate/input_owner.test.ts` grew 18 → **49 assertions**, adding: the arity check on
+`release`, all ten policy branches, S1/S2/S3 as state-machine sequences, and a **negative
+control** (test 12) that bypasses the liveness check and reproduces the lock-up — owner
+stuck at `os`, both flags false. Without it, the passing tests would not prove the liveness
+check is what is doing the work.
+
+Machine layer, re-run independently: `npm run verify` exit 0; gate `check_wall_clip: PASS`;
+**194 assertions, 0 failed** across height_fog 47 / render_prefs 19 / quality_live 9 /
+RoomState 25 / placement_audit 21 / editor_pick 8 / input_owner 49 / override_merge 16.
+
+Published as `1836cfd52456dba7b4dc514e90d9ea10cecc2c5f`. CI run
+[31622498663](https://github.com/klmtseng/cyberpunk-room/actions/runs/31622498663):
+success, and read from the run log rather than the job name — the step expanded to
+`npm run gate && npm run typecheck && npm test` and reported 194 assertions / 0 failed with
+`GATE check_wall_clip: PASS`.
+
+One process note, recorded rather than absorbed: the first attempt to publish was blocked
+because an automatic snapshot hook had already committed these files under a different
+identity. The commit was rebuilt from the identical tree under explicit authorisation —
+equivalence proven by matching tree hash and an empty `git diff` between old and new — and
+the hook was subsequently changed to refuse to snapshot any repository that has a
+non-local remote.
 
 ---
 
@@ -500,6 +670,7 @@ Nothing above is asserted without a reproduction. Explicitly:
 | P1-B selection broken | yes — treatment/control console capture | yes — control selects successfully |
 | P1-C-1 interact leak | yes (detector v3); **closure re-verified at `61d4206`** | yes — unbound key reads false in both states, bound key fires editor-closed |
 | P1-C-2 `setLocked` door | yes — post-fix harness re-run | yes |
+| H11 wrong hand-back owner (§2.2) | yes — S2 live: after editor-off `controlsOn=false`, i.e. input went to `os`, which the pre-fix default could not produce. Soft-lock variant reproduced in test 12 by bypassing the liveness check | yes — detectors validated in both directions, synthetic click cross-checked against a real click; **`arcade`/`reader` branches are focused-test only, their live sequences are unreachable** |
 | O-1 `stand()` escape | yes (harness v3, after two invalid versions); **closure re-verified at `61d4206`** | yes — editor-open-not-seated reads 0, editor state read from HUD text not presence, plus a hand-back control (§2.1 phase 4) |
 | O-2 micro-scale | yes — exit 0 at two scales, exit 1 at scale 40 | yes |
 | O-3 save scope | code-pinned, not runnable today (one entity exists); fix at `8f932ae` covered by unit tests only, **the original defect was never reproduced** | yes — an all-unchanged input returns `existing` unchanged |
@@ -513,7 +684,9 @@ Verification of the fixes themselves: `npm run verify` exit 0 — gate PASS with
 clean, and 129 assertions across six suites (height_fog 47, render_prefs 19,
 quality_live 9, RoomState 25, placement_audit 21, editor_pick 8), 0 failed. After
 `61d4206` the same command is exit 0 with 147 assertions across seven suites (the six
-above plus input_owner 18).
+above plus input_owner 18). After `1836cfd` it is exit 0 with **194 assertions across
+eight suites, 0 failed** (input_owner 18 → 49, plus override_merge 16); 194/0 is the
+current baseline, and it is the figure CI reproduced on run 31622498663.
 
 ---
 
