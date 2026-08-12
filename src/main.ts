@@ -11,6 +11,8 @@ import { buildRain } from './world/weather';
 import { FPControls } from './player/fp-controls';
 import { InteractSystem } from './player/interact';
 import { createInputOwner } from './player/input_owner';
+import type { InputOwnerName } from './player/input_owner';
+import { resolveHandbackTarget } from './player/editor_handback';
 import { TouchControls } from './player/touch-controls';
 import { BookReader } from './player/bookreader';
 import { FloorPlan } from './player/plan_view';
@@ -412,7 +414,7 @@ async function boot() {
     new THREE.Vector3(-4.6, 0, 4.75), 2.15, (f) => ambience.blip(f));
   ctx.scene.add(arcade.group);
   arcade.onClose = () => {
-    inputOwner.release('arcade');
+    inputOwner.release('arcade', 'player');
     controls.clearKeys();
     interact.flash(t('flash.arcade.leave'));
   };
@@ -430,7 +432,7 @@ async function boot() {
   // hold-a-book reading mode (replaces the old in-OS library reader)
   const reader = new BookReader(ctx.camera, ctx.scene);
   reader.onClose = () => {
-    inputOwner.release('reader');
+    inputOwner.release('reader', 'player');
     controls.clearKeys();
   };
 
@@ -738,7 +740,7 @@ async function boot() {
     mode = 'play';
     ctx.camera.position.copy(tweenFrom.pos);
     controls.setOrientation(tweenFrom.yaw, tweenFrom.pitch);
-    inputOwner.release('os');
+    inputOwner.release('os', 'player');
     controls.clearKeys();
     lockHint.classList.remove('gone');
   };
@@ -1370,13 +1372,38 @@ async function boot() {
       // O-1 修復:不再用 _prevEnabled 快照——所有權用 owner 身分表達;
       // stand() 在 editor 持有中時呼叫 release('player') 會被拒絕,
       // 無法把輸入從編輯器手上搶走。
+      //
+      // O-1b 修復:編輯器關閉時要還給「開啟前的那個 owner」,不是無條件還給
+      // player。但原 owner 可能在編輯器開著的期間就退場了——CyberOS 的 keydown
+      // (os.ts:133) 是 bubble 且不 stopPropagation,所以編輯器開著時按 Escape
+      // 會關掉 OS,而它的 onExit → release('os','player') 因為當下 owner 是
+      // 'editor' 而被拒絕。此時若照記錄把輸入還給 'os',controls 與 interact
+      // 都會停在關閉狀態而畫面上沒有任何 overlay = 軟鎖死,只能重整頁面。
+      //
+      // 所以歸還前同步查一次原 owner 還活著沒有。這個判斷刻意放在 composition
+      // layer:只有這裡同時看得到 os / arcade / reader 的狀態。InputOwner 本身
+      // 不認識任何 overlay,也不保留 stack 或 pending owner。
+      //
+      // (arcade 與 reader 的 keydown 是 capture 且會 stopPropagation,所以它們
+      //  持有輸入時 F2 根本到不了編輯器,實務上不會成為 previousOwner。仍然照
+      //  一般情況處理,不特判。)
+      let editorPrevOwner: InputOwnerName = 'player';
+
       const editorInputAdapter = {
         acquire() {
+          editorPrevOwner = inputOwner.currentOwner();
           inputOwner.acquire('editor');
           if (document.pointerLockElement) document.exitPointerLock();
         },
         release() {
-          inputOwner.release('editor');
+          // 取樣、判斷、release 全在同一個同步區塊內完成,中間沒有 await,
+          // 所以不存在「查完之後、還沒 release 之前 overlay 又變了」的窗口。
+          const target = resolveHandbackTarget(editorPrevOwner, {
+            os:     os.isOpen,
+            arcade: arcade.isActive,
+            reader: reader.isOpen,
+          });
+          inputOwner.release('editor', target);
         },
       };
       mountEditor(ctx, ctx.scene, ctx.camera, ctx.renderer as unknown as THREE.WebGLRenderer, editorInputAdapter);
