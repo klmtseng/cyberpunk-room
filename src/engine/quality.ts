@@ -36,7 +36,9 @@ export interface HardwareInfo {
 
 const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
   ultra: {
-    rainCount: 30000, shadowMapSize: 4096, enableShadows: true,
+    // GPU rain: counts are visual density, not a CPU budget. Curtain quads
+    // carry the volume, so we spend fewer streaks than the old CPU path.
+    rainCount: 14000, shadowMapSize: 4096, enableShadows: true,
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: true, enablePlanarReflection: true, pixelRatio: 1.5,
     buildingCount: 900, vehicleCount: 100,
@@ -45,7 +47,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableDOF: true,
   },
   high: {
-    rainCount: 10000, shadowMapSize: 1024, enableShadows: true,
+    rainCount: 8000, shadowMapSize: 1024, enableShadows: true,
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 650, vehicleCount: 75,
@@ -54,7 +56,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableDOF: true,
   },
   medium: {
-    rainCount: 5000, shadowMapSize: 512, enableShadows: true,
+    rainCount: 4000, shadowMapSize: 512, enableShadows: true,
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 420, vehicleCount: 55,
@@ -63,7 +65,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableDOF: true,
   },
   low: {
-    rainCount: 1500, shadowMapSize: 0, enableShadows: false,
+    rainCount: 1800, shadowMapSize: 0, enableShadows: false,
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: false, pixelRatio: 0.62,
     buildingCount: 260, vehicleCount: 34,

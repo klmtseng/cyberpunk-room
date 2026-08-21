@@ -12,16 +12,14 @@ import * as THREE from 'three';
 //   uCurtainAmt    — 0..1 (props.curtain.amount()); when curtain closes, drops fade out
 //   uTint          — base streak tint (cyan-pink lerp from city light)
 //
-// Visual layers (cheap because they composite, no branches):
-//   1) bright drop trails — voronoi cell centres slid downward; each cell
-//      lights up briefly when the trail passes
-//   2) periodic gust streaks — coherent horizontal smear every 6–11s
-//   3) condensation band — soft glow rising from sill upward, modulated by
-//      grazing-angle factor `1 - dot(viewDir, normal)` (computed from vNormal
-//      vs camera direction)
+// Visual layers (cheap because they composite, no extra draw calls):
+//   1) rivulet channels — vertical hash columns that water actually runs in
+//   2) fine voronoi drops + trails (two scales)
+//   3) fat slow drops with a bright meniscus
+//   4) periodic gust streaks
+//   5) condensation band + a thin wet-film so the pane reads as glass, not air
 //
-// Output is additive-ish (transparent + low alpha base + bright streaks) so
-// the city visible through the underlying transparent glass stays readable.
+// Output stays readable: city through the glass, water sitting ON it.
 
 export interface WindowRainHandle {
   material: THREE.ShaderMaterial;
@@ -95,62 +93,64 @@ export function buildWindowRainMaterial(): WindowRainHandle {
     }
 
     void main() {
-      // base UV — make the window taller than wide so drops elongate vertically
-      vec2 uv = vec2(vUv.x * 1.0, vUv.y * 0.6);
-
-      // ------- two scales of drops layered (closer drops bigger) -------
-      vec3 v0 = voronoiCell(uv * vec2(11.0, 6.0), uTime * 0.18);
-      vec3 v1 = voronoiCell(uv * vec2(22.0, 13.0) + 19.7, uTime * 0.26);
-
-      // each drop "lights up" briefly — a trail behind a falling head
-      float head0 = smoothstep(0.18, 0.02, v0.x) * step(0.55, v0.y);
-      float head1 = smoothstep(0.13, 0.01, v1.x) * step(0.62, v1.y);
-      // narrow tail above the head (drips downward, so tail is in -y from head)
-      // approximate: the closer to the cell centre AND below it, the brighter
-      float trail0 = smoothstep(0.30, 0.04, v0.x) * step(0.55, v0.y) * 0.35;
-      float trail1 = smoothstep(0.22, 0.02, v1.x) * step(0.62, v1.y) * 0.28;
-
-      float drops = head0 + head1 * 0.7 + trail0 + trail1;
-
-      // ------- periodic gust streak (every ~8s) -------
-      float gustPhase = uTime * 0.12;
-      float gust = smoothstep(0.93, 1.0, fract(gustPhase));
-      // horizontal smear modulated by a noise band at the gust's y
-      float gustY = hash11(floor(gustPhase));
-      float gustBand = smoothstep(0.04, 0.0, abs(vUv.y - gustY));
-      float gustStreak = gust * gustBand * 0.45;
-
-      // ------- condensation band (bottom + grazing angle) -------
-      float grazing = 1.0 - max(dot(vViewDir, vWorldNormal), 0.0);
-      grazing = clamp(grazing, 0.0, 1.0);
-      float sillBand = smoothstep(0.0, 0.35, vUv.y);
-      // 0 at sill → 1 just above, then fades up
-      sillBand = (1.0 - sillBand) * 0.7 + smoothstep(0.35, 0.10, vUv.y) * 0.4;
-      float condense = sillBand * (0.35 + 0.65 * grazing) * uCondensation;
-
-      // ------- rain intensity gate -------
+      vec2 uv = vec2(vUv.x, vUv.y * 0.62);
       float rainK = clamp(uRainAmt, 0.0, 1.0);
-      // curtain fully closed → drops fade quickly (rain still falls outside,
-      // but you can't see the glass surface)
       float curtainK = 1.0 - uCurtainAmt * 0.9;
-      drops *= rainK * curtainK;
-      gustStreak *= rainK * curtainK;
-      condense *= 0.65 + 0.35 * rainK;  // condensation persists even when rain light
+      float gate = rainK * curtainK;
 
-      // colour: drops carry a faint cyan-pink neon tint, condensation is whiter
-      vec3 dropCol = uTint * (1.4 + drops * 0.6);
-      vec3 condCol = vec3(0.85, 0.92, 1.05);
+      // ------- rivulets: water follows a few vertical channels -------
+      float col = floor(vUv.x * 20.0);
+      float colR = hash11(col * 13.17);
+      float xDist = abs(fract(vUv.x * 20.0 + 0.07 * sin(uTime * 0.4 + colR * 6.0)) - 0.5);
+      float channel = smoothstep(0.16, 0.03, xDist);
+      float run = fract(vUv.y * (0.55 + 0.35 * colR) - uTime * (0.11 + 0.22 * colR) * (0.65 + 0.7 * rainK));
+      float slug = smoothstep(0.10, 0.0, abs(run - 0.78)) * (0.55 + 0.45 * rainK);
+      float rivulet = channel * (0.22 + slug);
 
-      float wetA = drops + gustStreak;
-      float condA = condense * 0.55;
-      // Output: keep base alpha very low so the city behind stays visible,
-      // bright wet pixels punch through.
-      vec3  rgb   = dropCol * wetA + condCol * condA;
-      float alpha = clamp(wetA * 0.95 + condA, 0.0, 0.95);
+      // ------- two scales of voronoi drops (heads + trails) -------
+      vec3 v0 = voronoiCell(uv * vec2(12.0, 6.2), uTime * (0.16 + 0.10 * rainK));
+      vec3 v1 = voronoiCell(uv * vec2(24.0, 13.5) + 19.7, uTime * (0.24 + 0.12 * rainK));
+      float head0 = smoothstep(0.16, 0.018, v0.x) * step(0.48, v0.y);
+      float head1 = smoothstep(0.11, 0.010, v1.x) * step(0.55, v1.y);
+      float trail0 = smoothstep(0.32, 0.03, v0.x) * step(0.48, v0.y) * 0.42;
+      float trail1 = smoothstep(0.22, 0.02, v1.x) * step(0.55, v1.y) * 0.32;
 
-      // slight desaturation when very wet — water reads neutral, not coloured
+      // fat, slower drops — fewer, with a bright meniscus ring
+      vec3 v2 = voronoiCell(uv * vec2(6.5, 3.4) + 4.1, uTime * 0.09);
+      float fatCore = smoothstep(0.22, 0.04, v2.x) * step(0.72, v2.y);
+      float fatRim  = smoothstep(0.28, 0.18, v2.x) * smoothstep(0.10, 0.20, v2.x) * step(0.72, v2.y);
+
+      float drops = head0 + head1 * 0.75 + trail0 + trail1 + fatCore * 1.15 + fatRim * 0.7 + rivulet;
+
+      // ------- gust smear (more frequent when heavy) -------
+      float gustPhase = uTime * (0.11 + 0.08 * rainK);
+      float gust = smoothstep(0.90, 1.0, fract(gustPhase));
+      float gustY = hash11(floor(gustPhase));
+      float gustBand = smoothstep(0.055, 0.0, abs(vUv.y - gustY));
+      float gustStreak = gust * gustBand * (0.40 + 0.25 * rainK);
+
+      // ------- condensation + wet film -------
+      float grazing = clamp(1.0 - max(dot(vViewDir, vWorldNormal), 0.0), 0.0, 1.0);
+      float sillBand = (1.0 - smoothstep(0.0, 0.38, vUv.y)) * 0.75 + smoothstep(0.38, 0.08, vUv.y) * 0.4;
+      float condense = sillBand * (0.40 + 0.60 * grazing) * uCondensation;
+      float film = (0.06 + 0.10 * rainK) * (0.45 + 0.55 * grazing);
+
+      drops *= gate;
+      gustStreak *= gate;
+      film *= curtainK;
+      condense *= 0.60 + 0.40 * rainK;
+
+      vec3 dropCol = uTint * (1.35 + drops * 0.55);
+      vec3 condCol = vec3(0.86, 0.93, 1.06);
+      vec3 filmCol = vec3(0.72, 0.82, 0.95);
+
+      float wetA  = drops + gustStreak;
+      float condA = condense * 0.58;
+      vec3  rgb   = dropCol * wetA + condCol * condA + filmCol * film;
+      float alpha = clamp(wetA * 0.97 + condA + film, 0.0, 0.92);
+
       float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
-      rgb = mix(rgb, vec3(lum), 0.35 * wetA);
+      rgb = mix(rgb, vec3(lum), 0.28 * wetA);
 
       gl_FragColor = vec4(rgb, alpha);
     }
@@ -174,10 +174,10 @@ export function buildWindowRainMaterial(): WindowRainHandle {
     setRain: (level01) => {
       // raw rainValue is 0..1.9; map to 0..1 with a soft knee so heavy reads
       // distinctly stronger than light
-      const k = level01 < 0.001 ? 0 : Math.min(1.0, 0.45 + 0.55 * Math.min(1, level01 / 1.9));
+      const k = level01 < 0.001 ? 0 : Math.min(1.0, 0.50 + 0.50 * Math.min(1, level01 / 1.9));
       uniforms.uRainAmt.value = k;
       // condensation persists even when rain dialled down — humid window
-      uniforms.uCondensation.value = level01 < 0.001 ? 0.0 : 0.45 + 0.4 * Math.min(1, level01 / 1.9);
+      uniforms.uCondensation.value = level01 < 0.001 ? 0.0 : 0.55 + 0.40 * Math.min(1, level01 / 1.9);
     },
     setCurtain: (k01) => {
       uniforms.uCurtainAmt.value = Math.max(0, Math.min(1, k01));
