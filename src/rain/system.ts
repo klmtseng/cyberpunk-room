@@ -65,6 +65,7 @@ const STREAK_VERT = /* glsl */ `
   uniform float uStreak;
   varying float vAlpha;
   #include <common>
+  #include <fog_pars_vertex>
   void main() {
     float range = max(uRange, 0.001);
     float cycle = fract(aPhase + uTime * aSpeed / range);
@@ -80,12 +81,15 @@ const STREAK_VERT = /* glsl */ `
     gl_Position = projectionMatrix * mvPosition;
     float dist = max(-mvPosition.z, 0.8);
     gl_PointSize = clamp(uStreak * aSize * (16.0 / dist), 2.5, 42.0);
+    #include <fog_vertex>
   }
 `;
 
 const STREAK_FRAG = /* glsl */ `
   uniform vec3 uColor;
   varying float vAlpha;
+  #include <common>
+  #include <fog_pars_fragment>
   void main() {
     if (vAlpha < 0.01) discard;
     float x = abs(gl_PointCoord.x - 0.5);
@@ -95,6 +99,7 @@ const STREAK_FRAG = /* glsl */ `
     float alpha = core * head * vAlpha;
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(uColor, alpha);
+    #include <fog_fragment>
   }
 `;
 
@@ -110,6 +115,7 @@ const SPLASH_VERT = /* glsl */ `
   uniform vec2 uWind;
   varying float vAlpha;
   #include <common>
+  #include <fog_pars_vertex>
   void main() {
     float range = max(uRange, 0.001);
     float cycle = fract(aPhase + uTime * aSpeed / range);
@@ -126,12 +132,15 @@ const SPLASH_VERT = /* glsl */ `
     gl_Position = projectionMatrix * mvPosition;
     float dist = max(-mvPosition.z, 0.8);
     gl_PointSize = clamp(k * aSize * (28.0 / dist) * (0.6 + 8.0 * (cycle - 0.94)), 0.0, 36.0);
+    #include <fog_vertex>
   }
 `;
 
 const SPLASH_FRAG = /* glsl */ `
   uniform vec3 uColor;
   varying float vAlpha;
+  #include <common>
+  #include <fog_pars_fragment>
   void main() {
     if (vAlpha < 0.01) discard;
     vec2 p = gl_PointCoord * 2.0 - 1.0;
@@ -140,6 +149,7 @@ const SPLASH_FRAG = /* glsl */ `
     float alpha = ring * vAlpha;
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(uColor, alpha);
+    #include <fog_fragment>
   }
 `;
 
@@ -150,16 +160,19 @@ function makeUniforms(opts: {
   wind: THREE.Vector2;
   color: THREE.Color;
 }) {
-  return {
-    uTime: { value: 0 },
-    uIntensity: { value: 0.8 },
-    uYMax: { value: opts.yMax },
-    uYMin: { value: opts.yMin },
-    uRange: { value: opts.range },
-    uWind: { value: opts.wind.clone() },
-    uColor: { value: opts.color.clone() },
-    uStreak: { value: 12 },
-  };
+  return THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    {
+      uTime: { value: 0 },
+      uIntensity: { value: 0.8 },
+      uYMax: { value: opts.yMax },
+      uYMin: { value: opts.yMin },
+      uRange: { value: opts.range },
+      uWind: { value: opts.wind.clone() },
+      uColor: { value: opts.color.clone() },
+      uStreak: { value: 12 },
+    },
+  ]);
 }
 
 export function createRainSystem(opts: RainOptions): RainSystem {
@@ -211,6 +224,7 @@ export function createRainSystem(opts: RainOptions): RainSystem {
     fragmentShader: STREAK_FRAG,
     transparent: true,
     depthWrite: false,
+    fog: true,
     blending: THREE.NormalBlending,
   });
   const splashMat = new THREE.ShaderMaterial({
@@ -220,6 +234,7 @@ export function createRainSystem(opts: RainOptions): RainSystem {
     fragmentShader: SPLASH_FRAG,
     transparent: true,
     depthWrite: false,
+    fog: true,
     blending: THREE.NormalBlending,
   });
 
