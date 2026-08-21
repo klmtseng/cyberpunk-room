@@ -3,6 +3,7 @@ import { createRainSystem, type RainSystem } from './system';
 import { createMist, type MistSystem } from './mist';
 import { RainBed } from './audio';
 import { LabWalker, wireLabJoysticks } from './walker';
+import { createWindowWet, type WindowWet } from './pane';
 
 /** Dedicated rain-scene (not the loft). Loft: ?room=1 */
 export function wantRainLab(): boolean {
@@ -67,6 +68,17 @@ export async function bootRainLab(): Promise<void> {
 
   const carpetMap = await loadCarpet();
   const interior = buildEmptyRoom(scene, room, winZ, carpetMap);
+  const pane: WindowWet = createWindowWet({
+    width: room.w - 0.24,
+    height: room.h - 0.2,
+    winZ,
+    sillY: 0.07,
+    headY: room.h - 0.12,
+    roomH: room.h,
+    roomW: room.w,
+  });
+  scene.add(pane.group);
+  pane.setIntensity(0.8);
 
   const walker = new LabWalker(camera, canvas, {
     minX: -room.w / 2 + 0.45,
@@ -95,7 +107,7 @@ export async function bootRainLab(): Promise<void> {
       yMax: 14,
       yMin: 0.04,
       xSpan: 18,
-      z0: winZ + 0.45,
+      z0: winZ + 0.72,
       z1: winZ + 24,
       wind: new THREE.Vector2(current.windX, current.windZ),
       color: new THREE.Color(0xc8dcf0),
@@ -152,6 +164,7 @@ export async function bootRainLab(): Promise<void> {
   const applyWeather = () => {
     rain.setIntensity(current.intensity);
     rain.group.visible = current.intensity > 0.001;
+    pane.setIntensity(current.intensity);
     const n = Math.min(current.intensity, 1.9) / 1.9;
     mist.setDensity(current.day ? 0.12 + 0.28 * n : 0.22 + 0.4 * n);
     const night = current.fog;
@@ -247,6 +260,7 @@ export async function bootRainLab(): Promise<void> {
     const dt = Math.min(clock.getDelta(), 0.05);
     walker.update(dt);
     rain.update(dt);
+    pane.update(dt);
     mist.update(dt);
     renderer.render(scene, camera);
     panel.tick(current.count);
@@ -478,7 +492,7 @@ function mountPanel(handlers: {
       <span class="rl-toggle" aria-hidden="true">選單</span>
     </button>
     <div class="rl-body">
-      <div class="rl-sub">空房間 · 窗外雨 · 霧 · 雨聲</div>
+      <div class="rl-sub">空房間 · 窗外雨 · 窗上水珠 · 屋簷滴水</div>
       <div class="rl-row" data-row="sky">
         <span>天</span>
         <button type="button" data-sky="night" class="on">夜</button>
