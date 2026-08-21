@@ -471,44 +471,62 @@ function mountPanel(handlers: {
 }) {
   const el = document.createElement('div');
   el.id = 'rainlab-panel';
+  el.classList.add('collapsed');
   el.innerHTML = `
-    <div class="rl-title">落地窗</div>
-    <div class="rl-sub">空房間 · 窗外雨 · 霧 · 雨聲</div>
-    <div class="rl-row" data-row="sky">
-      <span>天</span>
-      <button type="button" data-sky="night" class="on">夜</button>
-      <button type="button" data-sky="day">日</button>
+    <button type="button" class="rl-head" aria-expanded="false">
+      <span class="rl-title">落地窗</span>
+      <span class="rl-toggle" aria-hidden="true">選單</span>
+    </button>
+    <div class="rl-body">
+      <div class="rl-sub">空房間 · 窗外雨 · 霧 · 雨聲</div>
+      <div class="rl-row" data-row="sky">
+        <span>天</span>
+        <button type="button" data-sky="night" class="on">夜</button>
+        <button type="button" data-sky="day">日</button>
+      </div>
+      <div class="rl-row" data-row="intensity">
+        <span>雨勢</span>
+        <button type="button" data-i="0">停</button>
+        <button type="button" data-i="0.8" class="on">小</button>
+        <button type="button" data-i="1.3">中</button>
+        <button type="button" data-i="1.9">大</button>
+      </div>
+      <div class="rl-row" data-row="fog">
+        <span>霧</span>
+        <button type="button" data-f="thin" class="on">薄</button>
+        <button type="button" data-f="mid">中</button>
+        <button type="button" data-f="thick">濃</button>
+      </div>
+      <div class="rl-row" data-row="wind">
+        <span>風</span>
+        <button type="button" data-w="0,0">無</button>
+        <button type="button" data-w="0.18,0.05" class="on">微</button>
+        <button type="button" data-w="0.58,0.14">強</button>
+      </div>
+      <div class="rl-row" data-row="count">
+        <span>顆數</span>
+        <button type="button" data-c="600">少</button>
+        <button type="button" data-c="1600" class="on">中</button>
+        <button type="button" data-c="2800">密</button>
+      </div>
+      <button class="rl-room" type="button">回 Neon Loft</button>
+      <div class="rl-hint">左搖桿移動 · 右搖桿看方向 · 點一下開雨聲</div>
+      <div class="rl-stat" id="rainlab-stat"></div>
     </div>
-    <div class="rl-row" data-row="intensity">
-      <span>雨勢</span>
-      <button type="button" data-i="0">停</button>
-      <button type="button" data-i="0.8" class="on">小</button>
-      <button type="button" data-i="1.3">中</button>
-      <button type="button" data-i="1.9">大</button>
-    </div>
-    <div class="rl-row" data-row="fog">
-      <span>霧</span>
-      <button type="button" data-f="thin" class="on">薄</button>
-      <button type="button" data-f="mid">中</button>
-      <button type="button" data-f="thick">濃</button>
-    </div>
-    <div class="rl-row" data-row="wind">
-      <span>風</span>
-      <button type="button" data-w="0,0">無</button>
-      <button type="button" data-w="0.18,0.05" class="on">微</button>
-      <button type="button" data-w="0.58,0.14">強</button>
-    </div>
-    <div class="rl-row" data-row="count">
-      <span>顆數</span>
-      <button type="button" data-c="600">少</button>
-      <button type="button" data-c="1600" class="on">中</button>
-      <button type="button" data-c="2800">密</button>
-    </div>
-    <button class="rl-room" type="button">回 Neon Loft</button>
-    <div class="rl-hint">左搖桿移動 · 右搖桿看方向 · 點一下開雨聲</div>
-    <div class="rl-stat" id="rainlab-stat"></div>
   `;
   document.body.appendChild(el);
+
+  const head = el.querySelector('.rl-head') as HTMLButtonElement;
+  const toggleLabel = el.querySelector('.rl-toggle') as HTMLElement;
+  const setFold = (open: boolean) => {
+    el.classList.toggle('collapsed', !open);
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggleLabel.textContent = open ? '收合' : '選單';
+  };
+  head.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setFold(el.classList.contains('collapsed'));
+  });
 
   const setOn = (row: string, btn: Element) => {
     el.querySelectorAll(`[data-row="${row}"] button`).forEach((b) => b.classList.remove('on'));

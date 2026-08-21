@@ -74,15 +74,33 @@
       #rainlab-panel {
         position: fixed; left: 12px; top: 12px; z-index: 20;
         pointer-events: auto; max-width: min(320px, calc(100vw - 24px));
-        padding: 12px 14px 10px; border: 1px solid #5af2ff44;
+        padding: 6px 8px 8px; border: 1px solid #5af2ff44;
         background: rgba(4, 8, 16, 0.78); backdrop-filter: blur(8px);
         font-family: 'Share Tech Mono', monospace; color: #c8f2ff;
+      }
+      #rainlab-panel.collapsed {
+        padding: 0;
+        width: auto;
+        max-width: none;
+      }
+      #rainlab-panel.collapsed .rl-body { display: none; }
+      #rainlab-panel .rl-head {
+        display: flex; align-items: center; gap: 10px; width: 100%;
+        min-height: 44px; padding: 0 10px; margin: 0;
+        background: transparent; border: 0; color: inherit;
+        font-family: inherit; cursor: pointer; text-align: left;
       }
       #rainlab-panel .rl-title {
         font-family: 'Orbitron', monospace; letter-spacing: .18em;
         font-size: 13px; color: #ff2bdb;
       }
+      #rainlab-panel .rl-toggle {
+        margin-left: auto; font-size: 11px; color: #5af2ffaa;
+        letter-spacing: .08em; min-width: auto; min-height: auto;
+        padding: 0; border: 0; background: none;
+      }
       #rainlab-panel .rl-sub { font-size: 11px; color: #5af2ff; opacity: .8; margin: 4px 0 10px; }
+      #rainlab-panel .rl-body { padding: 0 6px 4px; }
       #rainlab-panel .rl-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
       #rainlab-panel .rl-row span { width: 36px; font-size: 11px; color: #5af2ffaa; }
       #rainlab-panel button {
