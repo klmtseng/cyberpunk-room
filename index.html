@@ -98,6 +98,20 @@
         margin-top: 8px; font-size: 10px; color: #5af2ff88;
       }
       body.rainlab #boot .sub { letter-spacing: .12em; }
+      body.rainlab #hud, body.rainlab #touchhint, body.rainlab #lockhint { display: none !important; }
+      body.rainlab #joy {
+        display: block !important;
+        z-index: 24;
+        left: max(16px, env(safe-area-inset-left, 0px));
+        bottom: max(24px, env(safe-area-inset-bottom, 0px));
+        background: rgba(28, 18, 10, 0.5);
+        border-color: #e8b07088;
+      }
+      body.rainlab #joynub {
+        background: rgba(255, 196, 120, 0.4);
+        border-color: #ffd09aaa;
+        box-shadow: 0 0 12px #ffc07055;
+      }
     </style>
   </head>
   <body>
