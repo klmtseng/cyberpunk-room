@@ -13,6 +13,10 @@ export class LabWalker {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
+  lookX = 0;
+  lookY = 0;
+  private readonly lookRate = 2.35;
+  private readonly pitchRate = 1.7;
   private readonly lookSens = 0.0032;
   private readonly eyeY: number;
   private readonly minX: number;
@@ -44,12 +48,20 @@ export class LabWalker {
     this.moveStr = THREE.MathUtils.clamp(str, -1, 1);
   }
 
+  setLookVector(x: number, y: number): void {
+    this.lookX = THREE.MathUtils.clamp(x, -1, 1);
+    this.lookY = THREE.MathUtils.clamp(y, -1, 1);
+  }
+
   applyLook(dyaw: number, dpitch: number): void {
     this.yaw -= dyaw;
     this.pitch = THREE.MathUtils.clamp(this.pitch - dpitch, -1.15, 1.15);
   }
 
   update(dt: number): void {
+    if (this.lookX !== 0 || this.lookY !== 0) {
+      this.applyLook(this.lookX * this.lookRate * dt, -this.lookY * this.pitchRate * dt);
+    }
     let fwd = this.moveFwd;
     let str = this.moveStr;
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) fwd += 1;
@@ -134,12 +146,22 @@ const JOY_SIZE = 140;
 const JOY_NUB = 56;
 const MAX_NUB = (JOY_SIZE - JOY_NUB) / 2;
 
-/** Left-stick joystick for LabWalker. Pointer events cover iOS + mouse. */
-export function wireLabJoystick(walker: LabWalker): void {
-  const joy = document.getElementById('joy');
-  const nub = document.getElementById('joynub');
-  if (!joy || !nub) return;
-  joy.style.display = 'block';
+/** Dual sticks: left = move, right = look. Pointer events cover iOS + mouse. */
+export function wireLabJoysticks(walker: LabWalker): void {
+  wireStick('joy', 'joynub', (x, y) => walker.setMoveVector(y, x), () => walker.setMoveVector(0, 0));
+  wireStick('lookjoy', 'looknub', (x, y) => walker.setLookVector(x, y), () => walker.setLookVector(0, 0));
+}
+
+function wireStick(
+  id: string,
+  nubId: string,
+  onVec: (x: number, y: number) => void,
+  onEnd: () => void,
+): void {
+  const el = document.getElementById(id);
+  const nub = document.getElementById(nubId);
+  if (!el || !nub) return;
+  el.style.display = 'block';
 
   let origin = { x: 0, y: 0 };
   let active = false;
@@ -153,28 +175,29 @@ export function wireLabJoystick(walker: LabWalker): void {
       dy = (dy / len) * MAX_NUB;
     }
     nub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    walker.setMoveVector(-dy / MAX_NUB, dx / MAX_NUB);
+    onVec(dx / MAX_NUB, -dy / MAX_NUB);
   };
 
-  joy.addEventListener('pointerdown', (e) => {
+  el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     e.stopPropagation();
     active = true;
-    const r = joy.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    joy.setPointerCapture(e.pointerId);
+    el.setPointerCapture(e.pointerId);
     apply(e.clientX, e.clientY);
   });
-  joy.addEventListener('pointermove', (e) => {
+  el.addEventListener('pointermove', (e) => {
     if (!active) return;
     e.preventDefault();
     apply(e.clientX, e.clientY);
   });
   const end = () => {
+    if (!active) return;
     active = false;
-    walker.setMoveVector(0, 0);
+    onEnd();
     nub.style.transform = 'translate(-50%, -50%)';
   };
-  joy.addEventListener('pointerup', end);
-  joy.addEventListener('pointercancel', end);
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
 }

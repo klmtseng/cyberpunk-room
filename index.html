@@ -99,19 +99,34 @@
       }
       body.rainlab #boot .sub { letter-spacing: .12em; }
       body.rainlab #hud, body.rainlab #touchhint, body.rainlab #lockhint { display: none !important; }
-      body.rainlab #joy {
+      body.rainlab #joy, body.rainlab #lookjoy {
         display: block !important;
         z-index: 24;
-        left: max(16px, env(safe-area-inset-left, 0px));
         bottom: max(24px, env(safe-area-inset-bottom, 0px));
         background: rgba(28, 18, 10, 0.5);
         border-color: #e8b07088;
       }
-      body.rainlab #joynub {
+      body.rainlab #joy {
+        left: max(16px, env(safe-area-inset-left, 0px));
+      }
+      body.rainlab #lookjoy {
+        left: auto;
+        right: max(16px, env(safe-area-inset-right, 0px));
+      }
+      body.rainlab #joynub, body.rainlab #looknub {
         background: rgba(255, 196, 120, 0.4);
         border-color: #ffd09aaa;
         box-shadow: 0 0 12px #ffc07055;
       }
+      #lookjoy { position: fixed; right: 24px; bottom: 24px; width: 140px; height: 140px;
+              border-radius: 50%; background: rgba(10,16,32,0.45);
+              border: 1px solid #5af2ff55; z-index: 14; display: none;
+              touch-action: none; user-select: none; -webkit-user-select: none; }
+      #looknub { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px;
+                  border-radius: 50%; background: rgba(90,242,255,0.35);
+                  border: 1px solid #5af2ffaa; transform: translate(-50%, -50%);
+                  pointer-events: none; box-shadow: 0 0 12px #5af2ff55; }
+      body.xr #lookjoy { display: none; }
     </style>
   </head>
   <body>
@@ -137,6 +152,7 @@
       <canvas id="floorplan" class="gone"></canvas>
     </div>
     <div id="joy"><div id="joynub"></div></div>
+    <div id="lookjoy"><div id="looknub"></div></div>
     <div id="touchhint">滑動視角 · 點一下互動 · 左下搖桿移動</div>
     <script type="module">
       // Apply i18n to static HTML strings before main.ts mounts.

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createRainSystem, type RainSystem } from './system';
 import { createMist, type MistSystem } from './mist';
 import { RainBed } from './audio';
-import { LabWalker, wireLabJoystick } from './walker';
+import { LabWalker, wireLabJoysticks } from './walker';
 
 /** Dedicated rain-scene (not the loft). Loft: ?room=1 */
 export function wantRainLab(): boolean {
@@ -49,10 +49,10 @@ export async function bootRainLab(): Promise<void> {
   scene.fog = fog;
   scene.background = NIGHT_FOG.clone();
 
-  const room = { w: 8.4, d: 6.2, h: 3.36 };
+  const room = { w: 8.4, d: 11.2, h: 3.36 };
   const winZ = room.d / 2;
 
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.05, 120);
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.05, 160);
 
   const ambient = new THREE.AmbientLight(0xffe6cc, 2.8);
   scene.add(ambient);
@@ -62,9 +62,11 @@ export async function bootRainLab(): Promise<void> {
   windowKey.position.set(0, 4.2, 10);
   scene.add(windowKey);
 
+  const sky = makeSkyCubes();
+  scene.background = sky.night;
+
   const carpetMap = await loadCarpet();
   const interior = buildEmptyRoom(scene, room, winZ, carpetMap);
-  const exterior = buildExterior(scene, winZ);
 
   const walker = new LabWalker(camera, canvas, {
     minX: -room.w / 2 + 0.45,
@@ -73,17 +75,17 @@ export async function bootRainLab(): Promise<void> {
     maxZ: winZ - 0.48,
     y: 1.55,
   });
-  walker.position.set(0, 1.55, -1.15);
+  walker.position.set(0, 1.55, -room.d / 2 + 1.8);
   walker.yaw = Math.PI;
   walker.sync();
-  wireLabJoystick(walker);
+  wireLabJoysticks(walker);
 
   const current = {
     intensity: 0.8,
     windX: 0.16,
     windZ: 0.04,
     count: 1600,
-    fog: FOG_DENSITY.mid,
+    fog: FOG_DENSITY.thin,
     day: false,
   };
 
@@ -94,7 +96,7 @@ export async function bootRainLab(): Promise<void> {
       yMin: 0.04,
       xSpan: 18,
       z0: winZ + 0.45,
-      z1: 38,
+      z1: winZ + 24,
       wind: new THREE.Vector2(current.windX, current.windZ),
       color: new THREE.Color(0xc8dcf0),
     });
@@ -110,7 +112,7 @@ export async function bootRainLab(): Promise<void> {
     count: 150,
     xSpan: 20,
     z0: winZ + 1.2,
-    z1: 36,
+    z1: winZ + 22,
     y0: 0.5,
     y1: 7,
   });
@@ -130,16 +132,7 @@ export async function bootRainLab(): Promise<void> {
       windowKey.position.set(-5, 12, 14);
       interior.spots.forEach((s) => { s.intensity = 18; });
       interior.fixtures.forEach((f) => f.set(0xffe6c4));
-      exterior.facades.forEach((m) => {
-        m.emissive.setHex(0x000000);
-        m.emissiveIntensity = 0;
-        m.color.setHex(0x9aa3ae);
-      });
-      exterior.lamps.forEach((l) => { l.intensity = 0; });
-      exterior.bulbs.forEach((b) => b.set(0xeee6d8));
-      exterior.street.color.setHex(0x6c7178);
-      exterior.street.metalness = 0.22;
-      exterior.street.roughness = 0.48;
+      scene.background = sky.day;
       renderer.toneMappingExposure = 1.22;
     } else {
       ambient.intensity = 2.8;
@@ -151,17 +144,7 @@ export async function bootRainLab(): Promise<void> {
       windowKey.position.set(0, 4.2, 10);
       interior.spots.forEach((s) => { s.intensity = 52; });
       interior.fixtures.forEach((f) => f.set(0xffd09a));
-      const neon = [0xff2bdb, 0x2b6dff, 0x1ad6c4, 0xaa44ff, 0xff5a7a, 0x2bd4ff];
-      exterior.facades.forEach((m, i) => {
-        m.color.setHex(0x10141c);
-        m.emissive.setHex(neon[i % neon.length]);
-        m.emissiveIntensity = 0.38;
-      });
-      exterior.lamps.forEach((l) => { l.intensity = 38; });
-      exterior.bulbs.forEach((b) => b.set(0xffe6b0));
-      exterior.street.color.setHex(0x0b1018);
-      exterior.street.metalness = 0.68;
-      exterior.street.roughness = 0.2;
+      scene.background = sky.night;
       renderer.toneMappingExposure = 1.2;
     }
   };
@@ -170,7 +153,7 @@ export async function bootRainLab(): Promise<void> {
     rain.setIntensity(current.intensity);
     rain.group.visible = current.intensity > 0.001;
     const n = Math.min(current.intensity, 1.9) / 1.9;
-    mist.setDensity(current.day ? 0.18 + 0.45 * n : 0.35 + 0.7 * n);
+    mist.setDensity(current.day ? 0.12 + 0.28 * n : 0.22 + 0.4 * n);
     const night = current.fog;
     const day = night >= FOG_DENSITY.thick
       ? DAY_FOG_DENSITY.thick
@@ -178,17 +161,13 @@ export async function bootRainLab(): Promise<void> {
         ? DAY_FOG_DENSITY.mid
         : DAY_FOG_DENSITY.thin;
     const base = current.day ? day : night;
-    fog.density = THREE.MathUtils.lerp(base * 0.7, base * 1.15, n);
+    fog.density = THREE.MathUtils.lerp(base * 0.45, base * 0.85, n);
     if (current.day) {
-      const haze = DAY_FOG.clone().lerp(new THREE.Color(0xa8c0d0), n * 0.35);
-      fog.color.copy(haze);
-      scene.background = haze;
-      renderer.setClearColor(haze, 1);
+      fog.color.copy(DAY_FOG);
+      renderer.setClearColor(DAY_FOG, 1);
     } else {
-      const haze = NIGHT_FOG.clone().lerp(new THREE.Color(0x1a1424), n * 0.3);
-      fog.color.copy(haze);
-      scene.background = haze;
-      renderer.setClearColor(haze, 1);
+      fog.color.copy(NIGHT_FOG);
+      renderer.setClearColor(NIGHT_FOG, 1);
     }
     if (bed.ready) bed.setIntensity(current.intensity);
   };
@@ -241,6 +220,7 @@ export async function bootRainLab(): Promise<void> {
   canvas.addEventListener('pointerdown', armAudio, { once: false });
   panel.root.addEventListener('pointerdown', armAudio, { once: false });
   document.getElementById('joy')?.addEventListener('pointerdown', armAudio);
+  document.getElementById('lookjoy')?.addEventListener('pointerdown', armAudio);
 
   const clock = new THREE.Clock();
   window.addEventListener('resize', () => {
@@ -259,6 +239,7 @@ export async function bootRainLab(): Promise<void> {
       getYaw: () => walker.yaw,
       getPos: () => walker.position.clone(),
       setMove: (fwd: number, str: number) => walker.setMoveVector(fwd, str),
+      setLook: (x: number, y: number) => walker.setLookVector(x, y),
     };
   }
 
@@ -307,7 +288,7 @@ function makeWoodTexture(): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 4);
+  tex.repeat.set(6, 8);
   tex.anisotropy = 4;
   return tex;
 }
@@ -316,6 +297,73 @@ type Interior = {
   spots: THREE.PointLight[];
   fixtures: THREE.Color[];
 };
+
+function makeSkyCubes(): { night: THREE.CubeTexture; day: THREE.CubeTexture } {
+  return {
+    night: paintSkyCube({
+      zenith: '#070b14',
+      horizon: '#1a2740',
+      ground: '#08090e',
+      stars: true,
+    }),
+    day: paintSkyCube({
+      zenith: '#8eb4d4',
+      horizon: '#d5e4f0',
+      ground: '#b7c4ce',
+      stars: false,
+    }),
+  };
+}
+
+function paintSkyCube(opts: {
+  zenith: string;
+  horizon: string;
+  ground: string;
+  stars: boolean;
+}): THREE.CubeTexture {
+  const size = 256;
+  const face = (kind: 'side' | 'top' | 'bottom') => {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d')!;
+    if (kind === 'top') {
+      ctx.fillStyle = opts.zenith;
+      ctx.fillRect(0, 0, size, size);
+    } else if (kind === 'bottom') {
+      ctx.fillStyle = opts.ground;
+      ctx.fillRect(0, 0, size, size);
+    } else {
+      const g = ctx.createLinearGradient(0, 0, 0, size);
+      g.addColorStop(0, opts.zenith);
+      g.addColorStop(0.55, opts.horizon);
+      g.addColorStop(1, opts.ground);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }
+    if (opts.stars && kind !== 'bottom') {
+      ctx.fillStyle = '#e8f0ff';
+      const n = kind === 'top' ? 90 : 55;
+      for (let i = 0; i < n; i++) {
+        const x = (Math.sin(i * 12.9898 + kind.length) * 43758.5453) % 1;
+        const y = (Math.sin(i * 78.233 + kind.length * 3) * 23421.631) % 1;
+        const px = Math.abs(x) * size;
+        const py = Math.abs(y) * (kind === 'top' ? size : size * 0.62);
+        const r = i % 7 === 0 ? 1.2 : 0.6;
+        ctx.globalAlpha = 0.25 + (i % 5) * 0.12;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    return c;
+  };
+  const images = [face('side'), face('side'), face('top'), face('bottom'), face('side'), face('side')];
+  const cube = new THREE.CubeTexture(images);
+  cube.needsUpdate = true;
+  cube.colorSpace = THREE.SRGBColorSpace;
+  return cube;
+}
 
 function buildEmptyRoom(
   scene: THREE.Scene,
@@ -351,7 +399,7 @@ function buildEmptyRoom(
   box(w, h, 0.16, wall, 0, h / 2, -d / 2);
 
   const rug = new THREE.Mesh(
-    new THREE.PlaneGeometry(w * 0.78, d * 0.72),
+    new THREE.PlaneGeometry(w * 0.84, d * 0.9),
     new THREE.MeshStandardMaterial({
       map: carpetMap,
       roughness: 0.92,
@@ -360,7 +408,7 @@ function buildEmptyRoom(
     }),
   );
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0, 0.012, -0.08);
+  rug.position.set(0, 0.012, 0);
   rug.name = 'Carpet';
   scene.add(rug);
 
@@ -392,9 +440,11 @@ function buildEmptyRoom(
   const spots: THREE.PointLight[] = [];
   const fixtures: THREE.Color[] = [];
   const lamps = [
-    { x: -2.4, z: -1.1 },
-    { x: 2.4, z: -1.1 },
-    { x: 0, z: 1.15 },
+    { x: -2.4, z: -d * 0.32 },
+    { x: 2.4, z: -d * 0.32 },
+    { x: 0, z: 0 },
+    { x: -2.4, z: d * 0.28 },
+    { x: 2.4, z: d * 0.28 },
   ];
   for (const p of lamps) {
     const light = new THREE.PointLight(0xffc090, 52, 9.5, 1.7);
@@ -409,69 +459,6 @@ function buildEmptyRoom(
     scene.add(disc);
   }
   return { spots, fixtures };
-}
-
-type Exterior = {
-  facades: THREE.MeshStandardMaterial[];
-  lamps: THREE.PointLight[];
-  bulbs: THREE.Color[];
-  street: THREE.MeshStandardMaterial;
-};
-
-function buildExterior(scene: THREE.Scene, winZ: number): Exterior {
-  const street = new THREE.MeshStandardMaterial({
-    color: 0x0b1018, roughness: 0.2, metalness: 0.68, fog: true,
-  });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(48, 70), street);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.02, winZ + 22);
-  scene.add(ground);
-
-  const facades: THREE.MeshStandardMaterial[] = [];
-  const neon = [0xff2bdb, 0x2b6dff, 0x1ad6c4, 0xaa44ff, 0xff5a7a, 0x2bd4ff];
-  const towers = [
-    { x: -11, z: 14, w: 4.2, h: 18, d: 4 },
-    { x: -7, z: 22, w: 3.4, h: 12, d: 3.4 },
-    { x: 0.5, z: 28, w: 5.0, h: 22, d: 4.2 },
-    { x: 8, z: 18, w: 3.8, h: 15, d: 3.6 },
-    { x: 12, z: 30, w: 4.4, h: 20, d: 4 },
-    { x: -14, z: 32, w: 3.2, h: 10, d: 3 },
-  ];
-  towers.forEach((t, i) => {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x10141c,
-      emissive: new THREE.Color(neon[i % neon.length]),
-      emissiveIntensity: 0.38,
-      roughness: 0.8,
-      metalness: 0.16,
-      fog: true,
-    });
-    facades.push(mat);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(t.w, t.h, t.d), mat);
-    m.position.set(t.x, t.h / 2, winZ + t.z);
-    scene.add(m);
-  });
-
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0x1a1e26, roughness: 0.4, metalness: 0.6, fog: true });
-  const lamps: THREE.PointLight[] = [];
-  const bulbs: THREE.Color[] = [];
-  for (let i = 0; i < 4; i++) {
-    const z = winZ + 6 + i * 8;
-    const x = i % 2 === 0 ? -5.2 : 5.2;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.2, 8), lampMat);
-    pole.position.set(x, 1.6, z);
-    scene.add(pole);
-    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe6b0, fog: true });
-    bulbs.push(bulbMat.color);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), bulbMat);
-    bulb.position.set(x, 3.2, z);
-    scene.add(bulb);
-    const light = new THREE.PointLight(0xffd8a0, 38, 12, 2);
-    light.position.set(x, 3.15, z);
-    scene.add(light);
-    lamps.push(light);
-  }
-  return { facades, lamps, bulbs, street };
 }
 
 function mountPanel(handlers: {
@@ -501,8 +488,8 @@ function mountPanel(handlers: {
     </div>
     <div class="rl-row" data-row="fog">
       <span>霧</span>
-      <button type="button" data-f="thin">薄</button>
-      <button type="button" data-f="mid" class="on">中</button>
+      <button type="button" data-f="thin" class="on">薄</button>
+      <button type="button" data-f="mid">中</button>
       <button type="button" data-f="thick">濃</button>
     </div>
     <div class="rl-row" data-row="wind">
@@ -518,7 +505,7 @@ function mountPanel(handlers: {
       <button type="button" data-c="2800">密</button>
     </div>
     <button class="rl-room" type="button">回 Neon Loft</button>
-    <div class="rl-hint">左下搖桿走路 · 滑動看窗外 · 點一下開雨聲</div>
+    <div class="rl-hint">左搖桿移動 · 右搖桿看方向 · 點一下開雨聲</div>
     <div class="rl-stat" id="rainlab-stat"></div>
   `;
   document.body.appendChild(el);
@@ -568,8 +555,8 @@ function mountPanel(handlers: {
     root: el,
     setAudio: (on: boolean) => {
       hint.textContent = on
-        ? '雨聲已開 · 左下搖桿走路 · 滑動看窗外'
-        : '左下搖桿走路 · 滑動看窗外 · 點一下開雨聲';
+        ? '雨聲已開 · 左移動 · 右看方向'
+        : '左搖桿移動 · 右搖桿看方向 · 點一下開雨聲';
     },
     tick: (count: number) => {
       stat.textContent = `${count} 雨滴`;
