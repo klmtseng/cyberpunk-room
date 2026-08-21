@@ -37,6 +37,7 @@ import {
 } from './dev/placement_audit';
 import { applyOverrides, listEditableIds, getEditable, resetEditableRegistry } from './world/editable';
 import OVERRIDES_JSON from '../overrides.json' with { type: 'json' };
+import { bootRainLab, wantRainLab } from './rain/lab';
 
 // Diagnostic beacon: surface render health via document.title so any browser
 // can be probed externally (xdotool getwindowname) without DevTools.
@@ -48,6 +49,10 @@ console.error = (...args: unknown[]) => {
 };
 
 async function boot() {
+  if (wantRainLab()) {
+    await bootRainLab();
+    return;
+  }
   const bootEl = document.getElementById('boot')!;
   const bootBar = document.getElementById('bootbar') as HTMLElement;
   const appEl = document.getElementById('app')!;

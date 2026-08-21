@@ -70,13 +70,41 @@
       /* When the WebXR session is active, hide all DOM overlays — three.js
          handles a stereo view and the DOM is invisible to the headset */
       body.xr #hud, body.xr #lockhint, body.xr #joy, body.xr #touchhint { display: none; }
+      /* ---- Rain lab HUD ---- */
+      #rainlab-panel {
+        position: fixed; left: 12px; top: 12px; z-index: 20;
+        pointer-events: auto; max-width: min(320px, calc(100vw - 24px));
+        padding: 12px 14px 10px; border: 1px solid #5af2ff44;
+        background: rgba(4, 8, 16, 0.78); backdrop-filter: blur(8px);
+        font-family: 'Share Tech Mono', monospace; color: #c8f2ff;
+      }
+      #rainlab-panel .rl-title {
+        font-family: 'Orbitron', monospace; letter-spacing: .18em;
+        font-size: 13px; color: #ff2bdb;
+      }
+      #rainlab-panel .rl-sub { font-size: 11px; color: #5af2ff; opacity: .8; margin: 4px 0 10px; }
+      #rainlab-panel .rl-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
+      #rainlab-panel .rl-row span { width: 36px; font-size: 11px; color: #5af2ffaa; }
+      #rainlab-panel button {
+        font-family: inherit; font-size: 12px; color: #c8f2ff;
+        background: #0e1628; border: 1px solid #5af2ff55;
+        padding: 6px 10px; min-height: 32px;
+      }
+      #rainlab-panel button.on { border-color: #ff2bdb; color: #ffd0f3; background: #1a0c18; }
+      #rainlab-panel .rl-room {
+        margin-top: 8px; width: 100%; border-color: #ff2bdb66; color: #ff9adf;
+      }
+      #rainlab-panel .rl-hint, #rainlab-panel .rl-stat {
+        margin-top: 8px; font-size: 10px; color: #5af2ff88;
+      }
+      body.rainlab #boot .sub { letter-spacing: .12em; }
     </style>
   </head>
   <body>
     <div id="boot">
       <div>
         <div class="logo">NEON LOFT</div>
-        <div class="sub">// ROOM SIMULATOR — BOOTING NEURAL LINK</div>
+        <div class="sub">// RAIN LAB — 下雨技術試驗</div>
         <div class="prog"><i id="bootbar"></i></div>
       </div>
     </div>
