@@ -20,7 +20,7 @@ export interface RoomBuild {
   group: THREE.Group;
   walls: AABB[];
   windowPlane: THREE.Mesh;
-  windowRain: WindowRainHandle | null;   // null when preset disables it (none ATM; Low still shows)
+  windowRain: WindowRainHandle | null;   // null while rain VFX is parked
   monitorPlane: THREE.Mesh;
   heightAt: (x: number, z: number, feetY: number) => number;
   update: (t: number) => void;

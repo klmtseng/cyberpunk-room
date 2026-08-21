@@ -42,7 +42,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: true, enablePlanarReflection: true, pixelRatio: 1.5,
     buildingCount: 900, vehicleCount: 100,
-    windowRainShader: true, windowRainRefraction: true,
+    windowRainShader: false, windowRainRefraction: false,
     enableWetCity: true, volumetricSources: 3, volumetricSamples: 64,
     enableDOF: true,
   },
@@ -51,7 +51,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableBloom: true, enableChromaticAberration: true,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 650, vehicleCount: 75,
-    windowRainShader: true, windowRainRefraction: false,
+    windowRainShader: false, windowRainRefraction: false,
     enableWetCity: true, volumetricSources: 1, volumetricSamples: 16,
     enableDOF: true,
   },
@@ -60,7 +60,7 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: true, pixelRatio: 1.0,
     buildingCount: 420, vehicleCount: 55,
-    windowRainShader: true, windowRainRefraction: false,
+    windowRainShader: false, windowRainRefraction: false,
     enableWetCity: true, volumetricSources: 0, volumetricSamples: 0,
     enableDOF: true,
   },
@@ -69,9 +69,8 @@ const PRESETS: Record<QualityPreset, Omit<QualitySettings, 'preset'>> = {
     enableBloom: true, enableChromaticAberration: false,
     enableSSR: false, enablePlanarReflection: false, pixelRatio: 0.62,
     buildingCount: 260, vehicleCount: 34,
-    // glass shader runs (fragment-only on a single quad — free on iGPU)
-    // but without refraction. Reflector + god-rays + DOF off for Low.
-    windowRainShader: true, windowRainRefraction: false,
+    // Rain VFX parked — window overlay stays off on every preset.
+    windowRainShader: false, windowRainRefraction: false,
     enableWetCity: false, volumetricSources: 0, volumetricSamples: 0,
     enableDOF: false,
   },

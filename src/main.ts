@@ -326,8 +326,8 @@ async function boot() {
   }).catch((e) => console.warn('[mosaic] load failed', e));
 
   // ---------- weather state (terminal-controllable) ----------
-  let weatherLevel: 'off' | 'light' | 'heavy' = 'light';
-  let rainValue = 0.8;
+  let weatherLevel: 'off' | 'light' | 'heavy' = 'off';
+  let rainValue = 0;
   // raw scene applier — RoomState owns the canonical value; everyone else
   // (E-press, terminal, URL restore, future sync) goes through setWeather.
   const applyWeather = (level: 'off' | 'light' | 'heavy') => {
@@ -377,7 +377,7 @@ async function boot() {
     `${location.origin}${location.pathname}#room=${roomState.encode()}`;
 
   registerDevice({
-    id: 'weather', value: 'light', states: ['off', 'light', 'heavy'],
+    id: 'weather', value: 'off', states: ['off', 'light', 'heavy'],
     apply: (v) => applyWeather(v as 'off' | 'light' | 'heavy'),
   });
   registerDevice({
