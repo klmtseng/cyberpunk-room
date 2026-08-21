@@ -16,7 +16,7 @@ const FOG_COLOR = new THREE.Color(0x0a121c);
 const FOG_DENSITY = { thin: 0.022, mid: 0.048, thick: 0.082 };
 
 export async function bootRainLab(): Promise<void> {
-  document.title = '雨巷試驗';
+  document.title = '落地窗 · 雨';
   document.body.classList.add('rainlab');
   const bootEl = document.getElementById('boot');
   const appEl = document.getElementById('app')!;
@@ -41,7 +41,7 @@ export async function bootRainLab(): Promise<void> {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.0;
   renderer.setClearColor(FOG_COLOR, 1);
 
   const scene = new THREE.Scene();
@@ -49,30 +49,43 @@ export async function bootRainLab(): Promise<void> {
   scene.fog = fog;
   scene.background = FOG_COLOR.clone();
 
-  const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.05, 120);
-  camera.position.set(1.6, 1.55, 9.2);
+  const room = { w: 8.4, d: 6.2, h: 3.36 };
+  const winZ = room.d / 2;
+
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.05, 120);
+  camera.position.set(0, 1.52, -0.85);
 
   const controls = new OrbitControls(camera, canvas);
-  controls.target.set(0, 1.25, -4);
+  controls.target.set(0, 1.48, winZ - 0.2);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.minDistance = 2.4;
-  controls.maxDistance = 22;
-  controls.maxPolarAngle = Math.PI * 0.49;
-  controls.minPolarAngle = 0.18;
+  controls.minDistance = 0.7;
+  controls.maxDistance = 5.2;
+  controls.maxPolarAngle = Math.PI * 0.48;
+  controls.minPolarAngle = 0.22;
   controls.enablePan = false;
+  const keepInside = () => {
+    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -room.w / 2 + 0.45, room.w / 2 - 0.45);
+    camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.45, room.h - 0.28);
+    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -room.d / 2 + 0.4, winZ - 0.38);
+  };
+  controls.addEventListener('change', keepInside);
 
-  scene.add(new THREE.HemisphereLight(0x6a88aa, 0x080a10, 0.45));
-  const key = new THREE.DirectionalLight(0x9bb4d0, 0.28);
-  key.position.set(-6, 10, 4);
-  scene.add(key);
+  scene.add(new THREE.HemisphereLight(0x8aa6c0, 0x1a1410, 0.28));
+  const fill = new THREE.PointLight(0xc8d4e4, 0.35, 9, 2);
+  fill.position.set(0, 2.6, -0.4);
+  scene.add(fill);
+  const windowKey = new THREE.DirectionalLight(0x9ec4e8, 0.55);
+  windowKey.position.set(0, 3.2, 8);
+  scene.add(windowKey);
 
-  buildAlley(scene);
+  buildEmptyRoom(scene, room, winZ);
+  buildExterior(scene, winZ);
 
   const current = {
     intensity: 0.8,
-    windX: 0.18,
-    windZ: 0.05,
+    windX: 0.16,
+    windZ: 0.04,
     count: 1600,
     fog: FOG_DENSITY.mid,
   };
@@ -80,11 +93,11 @@ export async function bootRainLab(): Promise<void> {
   function spawnRain(count: number): RainSystem {
     const sys = createRainSystem({
       count,
-      yMax: 16,
+      yMax: 14,
       yMin: 0.04,
-      xSpan: 14,
-      z0: -32,
-      z1: 12,
+      xSpan: 18,
+      z0: winZ + 0.45,
+      z1: 38,
       wind: new THREE.Vector2(current.windX, current.windZ),
       color: new THREE.Color(0xc8dcf0),
     });
@@ -96,7 +109,14 @@ export async function bootRainLab(): Promise<void> {
   let rain: RainSystem = spawnRain(current.count);
   scene.add(rain.group);
 
-  const mist: MistSystem = createMist({ count: 160 });
+  const mist: MistSystem = createMist({
+    count: 150,
+    xSpan: 20,
+    z0: winZ + 1.2,
+    z1: 36,
+    y0: 0.5,
+    y1: 7,
+  });
   mist.setDensity(0.7);
   scene.add(mist.group);
 
@@ -172,83 +192,111 @@ export async function bootRainLab(): Promise<void> {
     rain.update(dt);
     mist.update(dt);
     controls.update();
+    keepInside();
     renderer.render(scene, camera);
     panel.tick(current.count);
   });
 }
 
-function buildAlley(scene: THREE.Scene): void {
-  const wet = new THREE.MeshStandardMaterial({
-    color: 0x0c1118,
-    roughness: 0.18,
-    metalness: 0.72,
+function buildEmptyRoom(scene: THREE.Scene, room: { w: number; d: number; h: number }, winZ: number): void {
+  const { w, d, h } = room;
+  const wall = new THREE.MeshStandardMaterial({
+    color: 0x16181e, roughness: 0.92, metalness: 0.02, fog: false,
   });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(18, 80), wet);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.z = -12;
-  scene.add(ground);
+  const floor = new THREE.MeshStandardMaterial({
+    color: 0x12141a, roughness: 0.22, metalness: 0.45, fog: false,
+  });
+  const ceil = new THREE.MeshStandardMaterial({
+    color: 0x101216, roughness: 0.95, metalness: 0.0, fog: false,
+  });
+  const frame = new THREE.MeshStandardMaterial({
+    color: 0x0a0c10, roughness: 0.35, metalness: 0.55, fog: false,
+  });
 
-  const curbMat = new THREE.MeshStandardMaterial({ color: 0x161c26, roughness: 0.7, metalness: 0.15 });
-  for (const x of [-6.4, 6.4]) {
-    const curb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 80), curbMat);
-    curb.position.set(x, 0.09, -12);
-    scene.add(curb);
-  }
+  const box = (sx: number, sy: number, sz: number, mat: THREE.Material, x: number, y: number, z: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+    m.position.set(x, y, z);
+    scene.add(m);
+    return m;
+  };
+
+  box(w, 0.08, d, floor, 0, -0.04, 0);
+  box(w, 0.08, d, ceil, 0, h + 0.04, 0);
+  box(0.16, h, d, wall, -w / 2, h / 2, 0);
+  box(0.16, h, d, wall, w / 2, h / 2, 0);
+  box(w, h, 0.16, wall, 0, h / 2, -d / 2);
+
+  const sillH = 0.07;
+  const headH = 0.12;
+  const jamb = 0.1;
+  box(w, sillH, 0.22, frame, 0, sillH / 2, winZ);
+  box(w, headH, 0.22, frame, 0, h - headH / 2, winZ);
+  box(jamb, h - sillH - headH, 0.22, frame, -w / 2 + jamb / 2, (sillH + h - headH) / 2, winZ);
+  box(jamb, h - sillH - headH, 0.22, frame, w / 2 - jamb / 2, (sillH + h - headH) / 2, winZ);
+
+  const glass = new THREE.Mesh(
+    new THREE.PlaneGeometry(w - jamb * 2 - 0.04, h - sillH - headH - 0.04),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xb7d0e4,
+      transparent: true,
+      opacity: 0.07,
+      roughness: 0.06,
+      metalness: 0.0,
+      reflectivity: 0.55,
+      fog: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  glass.position.set(0, (sillH + h - headH) / 2, winZ - 0.03);
+  glass.renderOrder = 2;
+  glass.name = 'LabGlass';
+  scene.add(glass);
+}
+
+function buildExterior(scene: THREE.Scene, winZ: number): void {
+  const wet = new THREE.MeshStandardMaterial({
+    color: 0x0b1018, roughness: 0.2, metalness: 0.68, fog: true,
+  });
+  const street = new THREE.Mesh(new THREE.PlaneGeometry(48, 70), wet);
+  street.rotation.x = -Math.PI / 2;
+  street.position.set(0, -0.02, winZ + 22);
+  scene.add(street);
 
   const facade = (hex: number) => new THREE.MeshStandardMaterial({
-    color: 0x12161e,
+    color: 0x10141c,
     emissive: new THREE.Color(hex),
-    emissiveIntensity: 0.42,
-    roughness: 0.78,
-    metalness: 0.18,
+    emissiveIntensity: 0.38,
+    roughness: 0.8,
+    metalness: 0.16,
+    fog: true,
   });
-
-  const left = [
-    { z: 4, h: 6.2, w: 3.2, c: 0xff2bdb },
-    { z: -2, h: 9.4, w: 3.6, c: 0x2b6dff },
-    { z: -9, h: 5.1, w: 3.0, c: 0x1ad6c4 },
-    { z: -16, h: 11.2, w: 3.8, c: 0xaa44ff },
-    { z: -24, h: 7.6, w: 3.2, c: 0xff5a7a },
+  const towers = [
+    { x: -11, z: 14, w: 4.2, h: 18, d: 4, c: 0xff2bdb },
+    { x: -7, z: 22, w: 3.4, h: 12, d: 3.4, c: 0x2b6dff },
+    { x: 0.5, z: 28, w: 5.0, h: 22, d: 4.2, c: 0x1ad6c4 },
+    { x: 8, z: 18, w: 3.8, h: 15, d: 3.6, c: 0xaa44ff },
+    { x: 12, z: 30, w: 4.4, h: 20, d: 4, c: 0xff5a7a },
+    { x: -14, z: 32, w: 3.2, h: 10, d: 3, c: 0x2bd4ff },
   ];
-  const right = [
-    { z: 2, h: 8.0, w: 3.4, c: 0x2bd4ff },
-    { z: -5, h: 4.8, w: 2.8, c: 0xffaa33 },
-    { z: -12, h: 10.4, w: 3.6, c: 0xff2bdb },
-    { z: -20, h: 6.5, w: 3.1, c: 0x4477ff },
-    { z: -28, h: 9.0, w: 3.4, c: 0x33e0a8 },
-  ];
-  for (const b of left) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, 4.2), facade(b.c));
-    m.position.set(-8.2, b.h / 2, b.z);
-    scene.add(m);
-  }
-  for (const b of right) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, 4.2), facade(b.c));
-    m.position.set(8.2, b.h / 2, b.z);
+  for (const t of towers) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(t.w, t.h, t.d), facade(t.c));
+    m.position.set(t.x, t.h / 2, winZ + t.z);
     scene.add(m);
   }
 
-  const lampMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1e26, roughness: 0.4, metalness: 0.6,
-  });
-  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe6b0 });
-  const glowMat = new THREE.MeshBasicMaterial({
-    color: 0xffcc77, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide,
-  });
-  for (let i = 0; i < 6; i++) {
-    const z = 6 - i * 7.2;
-    const x = i % 2 === 0 ? -5.6 : 5.6;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.4, 8), lampMat);
-    pole.position.set(x, 1.7, z);
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0x1a1e26, roughness: 0.4, metalness: 0.6, fog: true });
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe6b0, fog: true });
+  for (let i = 0; i < 4; i++) {
+    const z = winZ + 6 + i * 8;
+    const x = i % 2 === 0 ? -5.2 : 5.2;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.2, 8), lampMat);
+    pole.position.set(x, 1.6, z);
     scene.add(pole);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bulbMat);
-    bulb.position.set(x, 3.35, z);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), bulbMat);
+    bulb.position.set(x, 3.2, z);
     scene.add(bulb);
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), glowMat);
-    glow.position.set(x, 3.35, z);
-    scene.add(glow);
-    const light = new THREE.PointLight(0xffd8a0, 1.35, 11, 2);
-    light.position.set(x, 3.3, z);
+    const light = new THREE.PointLight(0xffd8a0, 1.1, 10, 2);
+    light.position.set(x, 3.15, z);
     scene.add(light);
   }
 }
@@ -263,8 +311,8 @@ function mountPanel(handlers: {
   const el = document.createElement('div');
   el.id = 'rainlab-panel';
   el.innerHTML = `
-    <div class="rl-title">雨巷</div>
-    <div class="rl-sub">獨立場景 · 雨絲 · 雨聲 · 霧</div>
+    <div class="rl-title">落地窗</div>
+    <div class="rl-sub">空房間 · 窗外雨 · 霧 · 雨聲</div>
     <div class="rl-row" data-row="intensity">
       <span>雨勢</span>
       <button type="button" data-i="0">停</button>
@@ -290,8 +338,8 @@ function mountPanel(handlers: {
       <button type="button" data-c="1600" class="on">中</button>
       <button type="button" data-c="2800">密</button>
     </div>
-    <button class="rl-room" type="button">回房間</button>
-    <div class="rl-hint">點一下開雨聲 · 拖曳轉視角</div>
+    <button class="rl-room" type="button">回 Neon Loft</button>
+    <div class="rl-hint">點一下開雨聲 · 拖曳看窗外</div>
     <div class="rl-stat" id="rainlab-stat"></div>
   `;
   document.body.appendChild(el);
@@ -334,7 +382,7 @@ function mountPanel(handlers: {
   return {
     root: el,
     setAudio: (on: boolean) => {
-      hint.textContent = on ? '雨聲已開 · 拖曳轉視角' : '點一下開雨聲 · 拖曳轉視角';
+      hint.textContent = on ? '雨聲已開 · 拖曳看窗外' : '點一下開雨聲 · 拖曳看窗外';
     },
     tick: (count: number) => {
       stat.textContent = `${count} 雨滴`;
